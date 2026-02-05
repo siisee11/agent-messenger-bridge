@@ -35,7 +35,7 @@ export class DiscordClient {
   }
 
   private setupEventHandlers(): void {
-    this.client.on('ready', () => {
+    this.client.on('clientReady', () => {
       console.log(`Discord bot logged in as ${this.client.user?.tag}`);
       this.scanExistingChannels();
     });
@@ -90,7 +90,7 @@ export class DiscordClient {
         reject(new Error('Discord login timed out after 30 seconds'));
       }, 30000);
 
-      this.client.once('ready', () => {
+      this.client.once('clientReady', () => {
         clearTimeout(timeout);
         resolve();
       });
