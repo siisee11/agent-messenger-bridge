@@ -19,16 +19,10 @@ if [[ -z "$PROJECT_NAME" ]]; then
   exit 0
 fi
 
-# YOLO mode: auto-approve everything, no Discord approval needed
-# (Claude is already running with --dangerously-skip-permissions)
-if [[ "${AGENT_DISCORD_YOLO:-}" == "1" ]]; then
-  exit 0
-fi
-
 # Extract tool name
 TOOL_NAME=$(echo "$HOOK_INPUT" | jq -r '.tool_name // .toolName // "unknown"' 2>/dev/null || echo "unknown")
 
-# ── AskUserQuestion: forward as notification, don't block ──
+# ── AskUserQuestion: always forward to Discord (even in YOLO mode) ──
 if [[ "$TOOL_NAME" == "AskUserQuestion" ]]; then
   TOOL_INPUT=$(echo "$HOOK_INPUT" | jq -r '.tool_input // .input // ""' 2>/dev/null || echo "")
 
@@ -54,6 +48,11 @@ if [[ "$TOOL_NAME" == "AskUserQuestion" ]]; then
     "http://127.0.0.1:${BRIDGE_PORT}/notify/${PROJECT_NAME}/claude" \
     --max-time 5 >/dev/null 2>&1 || true
 
+  exit 0
+fi
+
+# YOLO mode: auto-approve everything else (Claude is running with --dangerously-skip-permissions)
+if [[ "${AGENT_DISCORD_YOLO:-}" == "1" ]]; then
   exit 0
 fi
 
