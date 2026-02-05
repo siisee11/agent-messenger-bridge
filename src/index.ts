@@ -75,6 +75,7 @@ export class AgentBridge {
     const hookPattern = new RegExp(`^/hook/([^/]+)/(${agentNames})$`);
 
     const approvePattern = new RegExp(`^/approve/([^/]+)/(${agentNames})$`);
+    const notifyPattern = new RegExp(`^/notify/([^/]+)/(${agentNames})$`);
 
     this.httpServer = createServer(async (req, res) => {
       if (req.method !== 'POST') {
@@ -90,6 +91,16 @@ export class AgentBridge {
       req.on('end', async () => {
         try {
           const data = JSON.parse(body);
+
+          // Route: /notify/{projectName}/{agentType} (fire-and-forget notification)
+          const notifyMatch = pathname?.match(notifyPattern);
+          if (notifyMatch) {
+            const [, projectName, agentType] = notifyMatch;
+            await this.handleNotify(projectName, agentType, data);
+            res.writeHead(200);
+            res.end('OK');
+            return;
+          }
 
           // Route: /approve/{projectName}/{agentType}
           const approveMatch = pathname?.match(approvePattern);
@@ -142,6 +153,24 @@ export class AgentBridge {
       : this.formatGenericHookOutput(hookData, agentType);
 
     await this.discord.sendToChannel(channelId, message);
+  }
+
+  private async handleNotify(
+    projectName: string,
+    agentType: string,
+    data: any
+  ): Promise<void> {
+    const project = stateManager.getProject(projectName);
+    if (!project) return;
+
+    const channelId = project.discordChannels[agentType];
+    if (!channelId) return;
+
+    const message = data.message || '';
+    if (message) {
+      console.log(`📢 [${projectName}/${agentType}] Notification sent`);
+      await this.discord.sendToChannel(channelId, message);
+    }
   }
 
   private async handleApprovalRequest(
