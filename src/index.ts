@@ -7,6 +7,7 @@ import { TmuxManager } from './tmux/manager.js';
 import { stateManager } from './state/index.js';
 import { config } from './config/index.js';
 import { agentRegistry } from './agents/index.js';
+import { CapturePoller } from './capture/index.js';
 import { createServer } from 'http';
 import { parse } from 'url';
 import type { ProjectAgents } from './types/index.js';
@@ -14,11 +15,13 @@ import type { ProjectAgents } from './types/index.js';
 export class AgentBridge {
   private discord: DiscordClient;
   private tmux: TmuxManager;
+  private poller: CapturePoller;
   private httpServer?: ReturnType<typeof createServer>;
 
   constructor() {
     this.discord = new DiscordClient(config.discord.token);
     this.tmux = new TmuxManager('agent-');
+    this.poller = new CapturePoller(this.tmux, this.discord);
   }
 
   /**
@@ -49,7 +52,7 @@ export class AgentBridge {
       this.discord.registerChannelMappings(mappings);
     }
 
-    // Set up message routing
+    // Set up message routing (Discord → Agent via tmux)
     this.discord.onMessage(async (agentType, content, projectName, channelId) => {
       console.log(`📨 [${projectName}/${agentType}] ${content.substring(0, 50)}...`);
 
@@ -73,24 +76,19 @@ export class AgentBridge {
       stateManager.updateLastActive(projectName);
     });
 
-    // Start HTTP server for receiving hook outputs
-    this.startHookServer();
+    // Start HTTP server (minimal - just reload endpoint)
+    this.startServer();
+
+    // Start capture poller (Agent → Discord via tmux capture)
+    this.poller.start();
 
     console.log('✅ Discord Agent Bridge is running');
-    console.log(`📡 Hook server listening on port ${config.hookServerPort || 18470}`);
+    console.log(`📡 Server listening on port ${config.hookServerPort || 18470}`);
     console.log(`🤖 Registered agents: ${agentRegistry.getAll().map(a => a.config.displayName).join(', ')}`);
   }
 
-  private startHookServer(): void {
+  private startServer(): void {
     const port = config.hookServerPort || 18470;
-
-    // Build regex pattern from registered agents
-    const agentNames = agentRegistry.getAll().map(a => a.config.hookEndpoint).join('|');
-    const hookPattern = new RegExp(`^/hook/([^/]+)/(${agentNames})$`);
-
-    const approvePattern = new RegExp(`^/approve/([^/]+)/(${agentNames})$`);
-    const notifyPattern = new RegExp(`^/notify/([^/]+)/(${agentNames})$`);
-    const reloadPattern = /^\/reload$/;
 
     this.httpServer = createServer(async (req, res) => {
       if (req.method !== 'POST') {
@@ -101,45 +99,13 @@ export class AgentBridge {
 
       const { pathname } = parse(req.url || '');
 
-      let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', async () => {
+      // Consume body
+      req.on('data', () => {});
+      req.on('end', () => {
         try {
-          // Route: /reload (re-read state and update channel mappings) - no body needed
-          if (pathname && reloadPattern.test(pathname)) {
+          // Route: /reload (re-read state and update channel mappings)
+          if (pathname === '/reload') {
             this.reloadChannelMappings();
-            res.writeHead(200);
-            res.end('OK');
-            return;
-          }
-
-          const data = JSON.parse(body);
-
-          // Route: /notify/{projectName}/{agentType} (fire-and-forget notification)
-          const notifyMatch = pathname?.match(notifyPattern);
-          if (notifyMatch) {
-            const [, projectName, agentType] = notifyMatch;
-            await this.handleNotify(projectName, agentType, data);
-            res.writeHead(200);
-            res.end('OK');
-            return;
-          }
-
-          // Route: /approve/{projectName}/{agentType}
-          const approveMatch = pathname?.match(approvePattern);
-          if (approveMatch) {
-            const [, projectName, agentType] = approveMatch;
-            const approved = await this.handleApprovalRequest(projectName, agentType, data);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ approved }));
-            return;
-          }
-
-          // Route: /hook/{projectName}/{agentType}
-          const hookMatch = pathname?.match(hookPattern);
-          if (hookMatch) {
-            const [, projectName, agentType] = hookMatch;
-            await this.handleHookOutput(projectName, agentType, data);
             res.writeHead(200);
             res.end('OK');
             return;
@@ -173,106 +139,6 @@ export class AgentBridge {
       this.discord.registerChannelMappings(mappings);
     }
     console.log(`🔄 Reloaded channel mappings (${mappings.length} channels)`);
-  }
-
-  private async handleHookOutput(
-    projectName: string,
-    agentType: string,
-    hookData: any
-  ): Promise<void> {
-    const project = stateManager.getProject(projectName);
-    if (!project) return;
-
-    const channelId = project.discordChannels[agentType];
-    if (!channelId) return;
-
-    // Get adapter and format output
-    const adapter = agentRegistry.get(agentType);
-    const message = adapter
-      ? adapter.formatHookOutput(hookData)
-      : this.formatGenericHookOutput(hookData, agentType);
-
-    await this.discord.sendToChannel(channelId, message);
-  }
-
-  private async handleNotify(
-    projectName: string,
-    agentType: string,
-    data: any
-  ): Promise<void> {
-    const project = stateManager.getProject(projectName);
-    if (!project) return;
-
-    const channelId = project.discordChannels[agentType];
-    if (!channelId) return;
-
-    // Handle AskUserQuestion with interactive buttons
-    if (data.questions && Array.isArray(data.questions)) {
-      this.discord
-        .sendQuestionWithButtons(channelId, data.questions)
-        .then((selected) => {
-          if (selected) {
-            const proj = stateManager.getProject(projectName);
-            if (proj) {
-              this.tmux.sendKeysToWindow(proj.tmuxSession, agentType, selected);
-            }
-          }
-        })
-        .catch((err) => {
-          console.error(`Button interaction error: ${err}`);
-        });
-      return;
-    }
-
-    const message = data.message || '';
-    if (message) {
-      console.log(`📢 [${projectName}/${agentType}] Notification sent`);
-      await this.discord.sendToChannel(channelId, message);
-    }
-  }
-
-  private async handleApprovalRequest(
-    projectName: string,
-    agentType: string,
-    data: any
-  ): Promise<boolean> {
-    const project = stateManager.getProject(projectName);
-    if (!project) {
-      console.warn(`Approval request for unknown project: ${projectName}, auto-approving`);
-      return true;
-    }
-
-    const channelId = project.discordChannels[agentType];
-    if (!channelId) {
-      console.warn(`No channel for ${agentType} in ${projectName}, auto-approving`);
-      return true;
-    }
-
-    const toolName = data.tool_name || data.toolName || 'unknown';
-    const toolInput = data.tool_input || data.input || '';
-
-    console.log(`🔒 [${projectName}/${agentType}] Approval request for: ${toolName}`);
-
-    const approved = await this.discord.sendApprovalRequest(channelId, toolName, toolInput);
-
-    console.log(`🔒 [${projectName}/${agentType}] ${toolName}: ${approved ? 'APPROVED' : 'DENIED'}`);
-
-    return approved;
-  }
-
-  private formatGenericHookOutput(hookData: any, agentType: string): string {
-    const toolName = hookData.tool_name || hookData.toolName || 'unknown';
-    let output = hookData.tool_response || hookData.output || '';
-
-    if (typeof output === 'object') {
-      output = JSON.stringify(output, null, 2);
-    }
-
-    const brief = output.length > 200
-      ? output.substring(0, 200) + '...'
-      : output;
-
-    return `**${agentType}** - 🔧 ${toolName}${brief ? `\n${brief}` : ''}`;
   }
 
   async setupProject(
@@ -310,7 +176,7 @@ export class AgentBridge {
 
     const channelId = channels[adapter.config.name];
 
-    // Set environment variables on the tmux session so agent hooks can find the bridge
+    // Set environment variables on the tmux session
     const port = overridePort || config.hookServerPort || 18470;
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PROJECT', projectName);
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
@@ -350,6 +216,7 @@ export class AgentBridge {
   }
 
   async stop(): Promise<void> {
+    this.poller.stop();
     this.httpServer?.close();
     await this.discord.disconnect();
   }

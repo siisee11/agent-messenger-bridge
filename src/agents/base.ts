@@ -9,16 +9,7 @@ export interface AgentConfig {
   name: string;
   displayName: string;
   command: string;
-  hookEndpoint: string;
   channelSuffix: string;
-}
-
-export interface HookData {
-  tool_name?: string;
-  toolName?: string;
-  tool_response?: any;
-  output?: any;
-  [key: string]: any;
 }
 
 export abstract class BaseAgentAdapter {
@@ -48,31 +39,11 @@ export abstract class BaseAgentAdapter {
   }
 
   /**
-   * Format hook output for Discord message
-   */
-  abstract formatHookOutput(hookData: HookData): string;
-
-  /**
-   * Get hook script content for this agent
-   */
-  abstract getHookScript(bridgePort: number): string;
-
-  /**
-   * Get hook installation instructions/path
-   */
-  abstract getHookInstallPath(): string;
-
-  /**
    * Parse channel name to check if it belongs to this agent
    */
   matchesChannel(channelName: string, projectName: string): boolean {
     return channelName === `${projectName}-${this.config.channelSuffix}`;
   }
-
-  /**
-   * Get the settings configuration object for this agent's hook
-   */
-  abstract getSettingsConfig(hookScriptPath: string): object;
 }
 
 export type AgentType = 'claude' | 'opencode' | 'codex' | string;

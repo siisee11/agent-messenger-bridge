@@ -96,20 +96,10 @@ program
         }
       }
 
-      // 5. Install hooks
-      console.log(chalk.white('\n🪝 Installing hooks...'));
-      const hookScript = resolve(import.meta.dirname, '../../hooks/install-hooks.sh');
-      try {
-        execSync(`bash "${hookScript}"`, { stdio: 'inherit' });
-        console.log(chalk.green('✅ Hooks installed'));
-      } catch {
-        console.log(chalk.yellow('⚠️  Hook installation had issues (you can retry with: agent-discord install-hooks)'));
-      }
-
-      // 6. Disconnect
+      // 5. Disconnect
       await client.disconnect();
 
-      // 7. Summary
+      // 6. Summary
       console.log(chalk.cyan('\n✨ Setup complete!\n'));
       console.log(chalk.white('Next step:'));
       console.log(chalk.gray(`   cd <your-project>`));
@@ -556,7 +546,6 @@ program
       console.log(chalk.white(`  ${adapter.config.displayName}`));
       console.log(chalk.gray(`    Name: ${adapter.config.name}`));
       console.log(chalk.gray(`    Command: ${adapter.config.command}`));
-      console.log(chalk.gray(`    Hook config: ${adapter.getHookInstallPath()}`));
       console.log('');
     }
   });
@@ -694,36 +683,6 @@ program
         console.error(chalk.red(`Unknown action: ${action}`));
         console.log(chalk.gray('Available actions: start, stop, status'));
         process.exit(1);
-    }
-  });
-
-// Install hooks command
-program
-  .command('install-hooks')
-  .description('Install hooks for all registered agents')
-  .option('-a, --agent <name>', 'Install hooks for specific agent only')
-  .action((options) => {
-    if (options.agent) {
-      const adapter = agentRegistry.get(options.agent);
-      if (!adapter) {
-        console.error(chalk.red(`Unknown agent: ${options.agent}`));
-        console.log(chalk.gray('Available agents:'), agentRegistry.getAll().map(a => a.config.name).join(', '));
-        process.exit(1);
-      }
-      console.log(chalk.cyan(`Installing hooks for ${adapter.config.displayName}...`));
-      console.log(chalk.gray(`Config path: ${adapter.getHookInstallPath()}`));
-      console.log(chalk.yellow('\nManual installation required. Add the following hook configuration:'));
-      console.log(chalk.gray(JSON.stringify(adapter.getSettingsConfig(
-        resolve(import.meta.dirname, `../../hooks/${adapter.config.name}-post-tool.sh`)
-      ), null, 2)));
-    } else {
-      const hookScript = resolve(import.meta.dirname, '../../hooks/install-hooks.sh');
-      try {
-        execSync(`bash "${hookScript}"`, { stdio: 'inherit' });
-      } catch (error) {
-        console.error(chalk.red('Failed to install hooks'));
-        process.exit(1);
-      }
     }
   });
 

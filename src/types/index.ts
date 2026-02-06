@@ -23,15 +23,6 @@ export interface AgentMessage {
   agentName?: string;
 }
 
-export interface HookContext {
-  toolName: string;
-  output: string;
-  exitCode?: number;
-  hookSpecificOutput?: {
-    additionalContext?: string;
-  };
-}
-
 export interface BridgeConfig {
   discord: DiscordConfig;
   tmux: {
@@ -41,7 +32,7 @@ export interface BridgeConfig {
 }
 
 export interface ProjectAgents {
-  [agentType: string]: boolean;  // Dynamic agent support
+  [agentType: string]: boolean;
 }
 
 export interface ProjectState {
@@ -49,7 +40,7 @@ export interface ProjectState {
   projectPath: string;
   tmuxSession: string;
   discordChannels: {
-    [agentType: string]: string | undefined;  // agentType -> channelId
+    [agentType: string]: string | undefined;
   };
   agents: ProjectAgents;
   createdAt: Date;
