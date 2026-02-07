@@ -3,37 +3,62 @@
  * Single global daemon serves all projects on a fixed port
  */
 
-import { spawn } from 'child_process';
-import { createConnection } from 'net';
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, openSync } from 'fs';
+import { spawn as cpSpawn } from 'child_process';
+import { createConnection as netCreateConnection } from 'net';
+import { existsSync, mkdirSync, openSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { IStorage, IProcessManager } from './types/interfaces.js';
+import { FileStorage } from './infra/storage.js';
 
-const DAEMON_DIR = join(homedir(), '.discord-agent-bridge');
 const DEFAULT_PORT = 18470;
 
+class SystemProcessManager implements IProcessManager {
+  spawn(command: string, args: string[], options: any) {
+    return cpSpawn(command, args, options);
+  }
+  createConnection(options: { port: number; host: string }) {
+    return netCreateConnection(options);
+  }
+  kill(pid: number, signal: string) {
+    process.kill(pid, signal as any);
+  }
+}
+
 export class DaemonManager {
+  private storage: IStorage;
+  private processManager: IProcessManager;
+  private daemonDir: string;
+  private port: number;
+
+  constructor(storage?: IStorage, processManager?: IProcessManager, daemonDir?: string, port?: number) {
+    this.storage = storage || new FileStorage();
+    this.processManager = processManager || new SystemProcessManager();
+    this.daemonDir = daemonDir || join(homedir(), '.discord-agent-bridge');
+    this.port = port || DEFAULT_PORT;
+  }
+
   /**
    * Get the fixed daemon port
    */
-  static getPort(): number {
-    return DEFAULT_PORT;
+  getPort(): number {
+    return this.port;
   }
 
-  private static pidFile(): string {
-    return join(DAEMON_DIR, 'daemon.pid');
+  private pidFile(): string {
+    return join(this.daemonDir, 'daemon.pid');
   }
 
-  private static logFile(): string {
-    return join(DAEMON_DIR, 'daemon.log');
+  private logFile(): string {
+    return join(this.daemonDir, 'daemon.log');
   }
 
   /**
    * Check if daemon is running on the default port
    */
-  static isRunning(): Promise<boolean> {
+  isRunning(): Promise<boolean> {
     return new Promise((resolve) => {
-      const conn = createConnection({ port: DEFAULT_PORT, host: '127.0.0.1' });
+      const conn = this.processManager.createConnection({ port: this.port, host: '127.0.0.1' });
       conn.on('connect', () => {
         conn.destroy();
         resolve(true);
@@ -47,13 +72,13 @@ export class DaemonManager {
   /**
    * Start the global bridge daemon
    */
-  static startDaemon(entryPoint: string): number {
-    if (!existsSync(DAEMON_DIR)) {
-      mkdirSync(DAEMON_DIR, { recursive: true });
+  startDaemon(entryPoint: string): number {
+    if (!existsSync(this.daemonDir)) {
+      mkdirSync(this.daemonDir, { recursive: true });
     }
 
-    const logFile = DaemonManager.logFile();
-    const pidFile = DaemonManager.pidFile();
+    const logFile = this.logFile();
+    const pidFile = this.pidFile();
 
     const out = openSync(logFile, 'a');
     const err = openSync(logFile, 'a');
@@ -63,19 +88,22 @@ export class DaemonManager {
     const command = isMac ? 'caffeinate' : 'node';
     const args = isMac ? ['-ims', 'node', entryPoint] : [entryPoint];
 
-    const child = spawn(command, args, {
+    const child = this.processManager.spawn(command, args, {
       detached: true,
       stdio: ['ignore', out, err],
       env: {
         ...process.env,
-        HOOK_SERVER_PORT: String(DEFAULT_PORT),
+        HOOK_SERVER_PORT: String(this.port),
       },
     });
 
     child.unref();
 
-    const pid = child.pid!;
-    writeFileSync(pidFile, String(pid));
+    const pid = child.pid;
+    if (!pid) {
+      throw new Error('Failed to start daemon: no PID assigned');
+    }
+    this.storage.writeFile(pidFile, String(pid));
 
     return pid;
   }
@@ -83,20 +111,26 @@ export class DaemonManager {
   /**
    * Stop the global daemon
    */
-  static stopDaemon(): boolean {
-    const pidFile = DaemonManager.pidFile();
+  stopDaemon(): boolean {
+    const pidFile = this.pidFile();
 
-    if (!existsSync(pidFile)) {
+    if (!this.storage.exists(pidFile)) {
       return false;
     }
 
     try {
-      const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
-      process.kill(pid, 'SIGTERM');
-      unlinkSync(pidFile);
+      const pid = parseInt(this.storage.readFile(pidFile, 'utf-8').trim(), 10);
+      // Kill process group to ensure child processes (e.g., node under caffeinate) are also terminated
+      try {
+        this.processManager.kill(-pid, 'SIGTERM');
+      } catch {
+        // Fallback to killing just the process
+        this.processManager.kill(pid, 'SIGTERM');
+      }
+      this.storage.unlink(pidFile);
       return true;
     } catch {
-      try { unlinkSync(pidFile); } catch { /* ignore */ }
+      try { this.storage.unlink(pidFile); } catch { /* ignore */ }
       return false;
     }
   }
@@ -104,10 +138,10 @@ export class DaemonManager {
   /**
    * Wait for the daemon to start listening
    */
-  static async waitForReady(timeoutMs: number = 5000): Promise<boolean> {
+  async waitForReady(timeoutMs: number = 5000): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (await DaemonManager.isRunning()) {
+      if (await this.isRunning()) {
         return true;
       }
       await new Promise((r) => setTimeout(r, 250));
@@ -115,11 +149,13 @@ export class DaemonManager {
     return false;
   }
 
-  static getLogFile(): string {
-    return DaemonManager.logFile();
+  getLogFile(): string {
+    return this.logFile();
   }
 
-  static getPidFile(): string {
-    return DaemonManager.pidFile();
+  getPidFile(): string {
+    return this.pidFile();
   }
 }
+
+export const defaultDaemonManager = new DaemonManager();

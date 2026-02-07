@@ -5,7 +5,8 @@
 
 import { TmuxManager } from '../tmux/manager.js';
 import { DiscordClient } from '../discord/client.js';
-import { stateManager, type ProjectState } from '../state/index.js';
+import { stateManager as defaultStateManager, type ProjectState } from '../state/index.js';
+import type { IStateManager } from '../types/interfaces.js';
 import { cleanCapture, splitForDiscord } from './parser.js';
 import { detectState } from './detector.js';
 
@@ -32,7 +33,8 @@ export class CapturePoller {
   constructor(
     private tmux: TmuxManager,
     private discord: DiscordClient,
-    private intervalMs: number = 30000
+    private intervalMs: number = 30000,
+    private stateManager: IStateManager = defaultStateManager
   ) {}
 
   start(): void {
@@ -52,7 +54,7 @@ export class CapturePoller {
   }
 
   private async pollAll(): Promise<void> {
-    const projects = stateManager.listProjects();
+    const projects = this.stateManager.listProjects();
 
     for (const project of projects) {
       for (const [agentType, enabled] of Object.entries(project.agents)) {

@@ -7,14 +7,21 @@ export { claudeAdapter, ClaudeAdapter } from './claude.js';
 export { opencodeAdapter, OpenCodeAdapter } from './opencode.js';
 export { codexAdapter, CodexAdapter } from './codex.js';
 
-import { agentRegistry } from './base.js';
+import { AgentRegistry } from './base.js';
 import { claudeAdapter } from './claude.js';
 import { opencodeAdapter } from './opencode.js';
 import { codexAdapter } from './codex.js';
 
-// Register all available agents
-agentRegistry.register(claudeAdapter);
-agentRegistry.register(opencodeAdapter);
-agentRegistry.register(codexAdapter);
+/**
+ * Create a new AgentRegistry with all default adapters registered
+ */
+export function createAgentRegistry(): AgentRegistry {
+  const registry = new AgentRegistry();
+  registry.register(claudeAdapter);
+  registry.register(opencodeAdapter);
+  registry.register(codexAdapter);
+  return registry;
+}
 
-export { agentRegistry };
+// Default singleton for backward compatibility
+export const agentRegistry = createAgentRegistry();

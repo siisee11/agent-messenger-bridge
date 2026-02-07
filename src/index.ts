@@ -4,24 +4,60 @@
 
 import { DiscordClient } from './discord/client.js';
 import { TmuxManager } from './tmux/manager.js';
-import { stateManager } from './state/index.js';
-import { config } from './config/index.js';
-import { agentRegistry } from './agents/index.js';
+import { stateManager as defaultStateManager } from './state/index.js';
+import { config as defaultConfig } from './config/index.js';
+import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
 import { CapturePoller } from './capture/index.js';
 import { createServer } from 'http';
 import { parse } from 'url';
 import type { ProjectAgents } from './types/index.js';
+import type { IStateManager } from './types/interfaces.js';
+import type { BridgeConfig } from './types/index.js';
+
+export interface AgentBridgeDeps {
+  discord?: DiscordClient;
+  tmux?: TmuxManager;
+  stateManager?: IStateManager;
+  registry?: AgentRegistry;
+  config?: BridgeConfig;
+}
 
 export class AgentBridge {
   private discord: DiscordClient;
   private tmux: TmuxManager;
   private poller: CapturePoller;
   private httpServer?: ReturnType<typeof createServer>;
+  private stateManager: IStateManager;
+  private registry: AgentRegistry;
+  private bridgeConfig: BridgeConfig;
 
-  constructor() {
-    this.discord = new DiscordClient(config.discord.token);
-    this.tmux = new TmuxManager('agent-');
-    this.poller = new CapturePoller(this.tmux, this.discord);
+  constructor(deps?: AgentBridgeDeps) {
+    this.bridgeConfig = deps?.config || defaultConfig;
+    this.discord = deps?.discord || new DiscordClient(this.bridgeConfig.discord.token);
+    this.tmux = deps?.tmux || new TmuxManager('agent-');
+    this.stateManager = deps?.stateManager || defaultStateManager;
+    this.registry = deps?.registry || defaultAgentRegistry;
+    this.poller = new CapturePoller(this.tmux, this.discord, 30000, this.stateManager);
+  }
+
+  /**
+   * Sanitize Discord message input before passing to tmux
+   */
+  public sanitizeInput(content: string): string | null {
+    // Reject empty/whitespace-only messages
+    if (!content || content.trim().length === 0) {
+      return null;
+    }
+
+    // Limit message length to prevent abuse
+    if (content.length > 10000) {
+      return null;
+    }
+
+    // Strip null bytes
+    const sanitized = content.replace(/\0/g, '');
+
+    return sanitized;
   }
 
   /**
@@ -39,7 +75,7 @@ export class AgentBridge {
     console.log('✅ Discord connected');
 
     // Load channel mappings from saved state
-    const projects = stateManager.listProjects();
+    const projects = this.stateManager.listProjects();
     const mappings: { channelId: string; projectName: string; agentType: string }[] = [];
     for (const project of projects) {
       for (const [agentType, channelId] of Object.entries(project.discordChannels)) {
@@ -56,24 +92,31 @@ export class AgentBridge {
     this.discord.onMessage(async (agentType, content, projectName, channelId) => {
       console.log(`📨 [${projectName}/${agentType}] ${content.substring(0, 50)}...`);
 
-      const project = stateManager.getProject(projectName);
+      const project = this.stateManager.getProject(projectName);
       if (!project) {
         console.warn(`Project ${projectName} not found in state`);
         await this.discord.sendToChannel(channelId, `⚠️ Project "${projectName}" not found in state`);
         return;
       }
 
+      // Sanitize input
+      const sanitized = this.sanitizeInput(content);
+      if (!sanitized) {
+        await this.discord.sendToChannel(channelId, `⚠️ Invalid message: empty, too long (>10000 chars), or contains invalid characters`);
+        return;
+      }
+
       // Get agent adapter
-      const adapter = agentRegistry.get(agentType);
+      const adapter = this.registry.get(agentType);
       const agentDisplayName = adapter?.config.displayName || agentType;
 
       // Send confirmation to Discord
-      const preview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+      const preview = sanitized.length > 100 ? sanitized.substring(0, 100) + '...' : sanitized;
       await this.discord.sendToChannel(channelId, `**${agentDisplayName}** - 📨 받은 메시지: \`${preview}\``);
 
       // Send to tmux
-      this.tmux.sendKeysToWindow(project.tmuxSession, agentType, content);
-      stateManager.updateLastActive(projectName);
+      this.tmux.sendKeysToWindow(project.tmuxSession, agentType, sanitized);
+      this.stateManager.updateLastActive(projectName);
     });
 
     // Start HTTP server (minimal - just reload endpoint)
@@ -83,12 +126,12 @@ export class AgentBridge {
     this.poller.start();
 
     console.log('✅ Discord Agent Bridge is running');
-    console.log(`📡 Server listening on port ${config.hookServerPort || 18470}`);
-    console.log(`🤖 Registered agents: ${agentRegistry.getAll().map(a => a.config.displayName).join(', ')}`);
+    console.log(`📡 Server listening on port ${this.bridgeConfig.hookServerPort || 18470}`);
+    console.log(`🤖 Registered agents: ${this.registry.getAll().map(a => a.config.displayName).join(', ')}`);
   }
 
   private startServer(): void {
-    const port = config.hookServerPort || 18470;
+    const port = this.bridgeConfig.hookServerPort || 18470;
 
     this.httpServer = createServer(async (req, res) => {
       if (req.method !== 'POST') {
@@ -121,12 +164,16 @@ export class AgentBridge {
       });
     });
 
+    this.httpServer.on('error', (err) => {
+      console.error('HTTP server error:', err);
+    });
+
     this.httpServer.listen(port, '127.0.0.1');
   }
 
   private reloadChannelMappings(): void {
-    stateManager.reload();
-    const projects = stateManager.listProjects();
+    this.stateManager.reload();
+    const projects = this.stateManager.listProjects();
     const mappings: { channelId: string; projectName: string; agentType: string }[] = [];
     for (const project of projects) {
       for (const [agentType, channelId] of Object.entries(project.discordChannels)) {
@@ -149,7 +196,7 @@ export class AgentBridge {
     overridePort?: number,
     yolo = false
   ): Promise<{ channelName: string; channelId: string; agentName: string; tmuxSession: string }> {
-    const guildId = stateManager.getGuildId();
+    const guildId = this.stateManager.getGuildId();
     if (!guildId) {
       throw new Error('Server ID not configured. Run: agent-discord config --server <id>');
     }
@@ -158,7 +205,7 @@ export class AgentBridge {
     const tmuxSession = this.tmux.getOrCreateSession(projectName);
 
     // Collect enabled agents (should be only one)
-    const enabledAgents = agentRegistry.getAll().filter(a => agents[a.config.name]);
+    const enabledAgents = this.registry.getAll().filter(a => agents[a.config.name]);
     const adapter = enabledAgents[0];
 
     if (!adapter) {
@@ -177,7 +224,7 @@ export class AgentBridge {
     const channelId = channels[adapter.config.name];
 
     // Set environment variables on the tmux session
-    const port = overridePort || config.hookServerPort || 18470;
+    const port = overridePort || this.bridgeConfig.hookServerPort || 18470;
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PROJECT', projectName);
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
     if (yolo) {
@@ -205,7 +252,7 @@ export class AgentBridge {
       createdAt: new Date(),
       lastActive: new Date(),
     };
-    stateManager.setProject(projectState);
+    this.stateManager.setProject(projectState);
 
     return {
       channelName,
@@ -227,7 +274,11 @@ export async function main() {
 
   process.on('SIGINT', async () => {
     console.log('\n👋 Shutting down...');
-    await bridge.stop();
+    try {
+      await bridge.stop();
+    } catch (error) {
+      console.error('Error during shutdown:', error);
+    }
     process.exit(0);
   });
 

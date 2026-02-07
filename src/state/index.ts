@@ -3,9 +3,10 @@
  * Tracks active projects, their Discord channels, and tmux sessions
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { IStorage, IStateManager } from '../types/interfaces.js';
+import { FileStorage } from '../infra/storage.js';
 
 export interface ProjectState {
   projectName: string;
@@ -26,22 +27,26 @@ export interface BridgeState {
   guildId?: string;
 }
 
-const STATE_DIR = join(homedir(), '.discord-agent-bridge');
-const STATE_FILE = join(STATE_DIR, 'state.json');
 
-export class StateManager {
+export class StateManager implements IStateManager {
   private state: BridgeState;
+  private storage: IStorage;
+  private stateDir: string;
+  private stateFile: string;
 
-  constructor() {
+  constructor(storage?: IStorage, stateDir?: string, stateFile?: string) {
+    this.storage = storage || new FileStorage();
+    this.stateDir = stateDir || join(homedir(), '.discord-agent-bridge');
+    this.stateFile = stateFile || join(this.stateDir, 'state.json');
     this.state = this.loadState();
   }
 
   private loadState(): BridgeState {
-    if (!existsSync(STATE_FILE)) {
+    if (!this.storage.exists(this.stateFile)) {
       return { projects: {} };
     }
     try {
-      const data = readFileSync(STATE_FILE, 'utf-8');
+      const data = this.storage.readFile(this.stateFile, 'utf-8');
       return JSON.parse(data);
     } catch {
       return { projects: {} };
@@ -49,10 +54,10 @@ export class StateManager {
   }
 
   private saveState(): void {
-    if (!existsSync(STATE_DIR)) {
-      mkdirSync(STATE_DIR, { recursive: true });
+    if (!this.storage.exists(this.stateDir)) {
+      this.storage.mkdirp(this.stateDir);
     }
-    writeFileSync(STATE_FILE, JSON.stringify(this.state, null, 2));
+    this.storage.writeFile(this.stateFile, JSON.stringify(this.state, null, 2));
   }
 
   reload(): void {

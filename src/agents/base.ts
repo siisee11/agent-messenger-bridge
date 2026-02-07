@@ -3,7 +3,8 @@
  * All AI agent CLIs must implement this interface
  */
 
-import { execSync } from 'child_process';
+import type { ICommandExecutor } from '../types/interfaces.js';
+import { ShellCommandExecutor } from '../infra/shell.js';
 
 export interface AgentConfig {
   name: string;
@@ -22,9 +23,10 @@ export abstract class BaseAgentAdapter {
   /**
    * Check if the agent CLI is installed on this system
    */
-  isInstalled(): boolean {
+  isInstalled(executor?: ICommandExecutor): boolean {
+    const exec = executor || new ShellCommandExecutor();
     try {
-      execSync(`command -v ${this.config.command}`, { stdio: 'ignore' });
+      exec.execVoid(`command -v ${this.config.command}`, { stdio: 'ignore' });
       return true;
     } catch {
       return false;
@@ -83,5 +85,3 @@ export class AgentRegistry {
     return null;
   }
 }
-
-export const agentRegistry = new AgentRegistry();

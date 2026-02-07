@@ -11,7 +11,7 @@ import { validateConfig, config, saveConfig, getConfigPath } from '../src/config
 import { TmuxManager } from '../src/tmux/manager.js';
 import { agentRegistry } from '../src/agents/index.js';
 import { DiscordClient } from '../src/discord/client.js';
-import { DaemonManager } from '../src/daemon.js';
+import { defaultDaemonManager } from '../src/daemon.js';
 import { basename, resolve } from 'path';
 import { execSync } from 'child_process';
 import { createInterface } from 'readline';
@@ -271,7 +271,7 @@ program
 
       const projectPath = process.cwd();
       const projectName = options.name || basename(projectPath);
-      const port = DaemonManager.getPort();
+      const port = defaultDaemonManager.getPort();
 
       console.log(chalk.cyan(`\n🚀 agent-discord go — ${projectName}\n`));
 
@@ -321,16 +321,16 @@ program
       }
 
       // Ensure global daemon is running
-      const running = await DaemonManager.isRunning();
+      const running = await defaultDaemonManager.isRunning();
       if (!running) {
         console.log(chalk.gray('   Starting bridge daemon...'));
         const entryPoint = resolve(import.meta.dirname, '../src/daemon-entry.js');
-        DaemonManager.startDaemon(entryPoint);
-        const ready = await DaemonManager.waitForReady();
+        defaultDaemonManager.startDaemon(entryPoint);
+        const ready = await defaultDaemonManager.waitForReady();
         if (ready) {
           console.log(chalk.green(`✅ Bridge daemon started (port ${port})`));
         } else {
-          console.log(chalk.yellow(`⚠️  Daemon may not be ready yet. Check logs: ${DaemonManager.getLogFile()}`));
+          console.log(chalk.yellow(`⚠️  Daemon may not be ready yet. Check logs: ${defaultDaemonManager.getLogFile()}`));
         }
       } else {
         console.log(chalk.green(`✅ Bridge daemon already running (port ${port})`));
@@ -640,28 +640,28 @@ program
   .command('daemon <action>')
   .description('Manage the global bridge daemon (start|stop|status)')
   .action(async (action: string) => {
-    const port = DaemonManager.getPort();
+    const port = defaultDaemonManager.getPort();
 
     switch (action) {
       case 'start': {
-        const running = await DaemonManager.isRunning();
+        const running = await defaultDaemonManager.isRunning();
         if (running) {
           console.log(chalk.green(`✅ Daemon already running (port ${port})`));
           return;
         }
         console.log(chalk.gray('Starting daemon...'));
         const entryPoint = resolve(import.meta.dirname, '../src/daemon-entry.js');
-        DaemonManager.startDaemon(entryPoint);
-        const ready = await DaemonManager.waitForReady();
+        defaultDaemonManager.startDaemon(entryPoint);
+        const ready = await defaultDaemonManager.waitForReady();
         if (ready) {
           console.log(chalk.green(`✅ Daemon started (port ${port})`));
         } else {
-          console.log(chalk.yellow(`⚠️  Daemon may not be ready. Check logs: ${DaemonManager.getLogFile()}`));
+          console.log(chalk.yellow(`⚠️  Daemon may not be ready. Check logs: ${defaultDaemonManager.getLogFile()}`));
         }
         break;
       }
       case 'stop': {
-        if (DaemonManager.stopDaemon()) {
+        if (defaultDaemonManager.stopDaemon()) {
           console.log(chalk.green('✅ Daemon stopped'));
         } else {
           console.log(chalk.gray('Daemon was not running'));
@@ -669,14 +669,14 @@ program
         break;
       }
       case 'status': {
-        const running = await DaemonManager.isRunning();
+        const running = await defaultDaemonManager.isRunning();
         if (running) {
           console.log(chalk.green(`✅ Daemon running (port ${port})`));
         } else {
           console.log(chalk.gray('Daemon not running'));
         }
-        console.log(chalk.gray(`   Log: ${DaemonManager.getLogFile()}`));
-        console.log(chalk.gray(`   PID: ${DaemonManager.getPidFile()}`));
+        console.log(chalk.gray(`   Log: ${defaultDaemonManager.getLogFile()}`));
+        console.log(chalk.gray(`   PID: ${defaultDaemonManager.getPidFile()}`));
         break;
       }
       default:

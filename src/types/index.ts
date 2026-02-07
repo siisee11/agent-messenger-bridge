@@ -2,6 +2,8 @@
  * TypeScript type definitions
  */
 
+export * from './interfaces.js';
+
 export interface DiscordConfig {
   token: string;
   channelId?: string;

@@ -14,7 +14,7 @@ import {
   EmbedBuilder,
 } from 'discord.js';
 import type { AgentMessage } from '../types/index.js';
-import { agentRegistry, type AgentConfig } from '../agents/index.js';
+import { agentRegistry as defaultAgentRegistry, type AgentConfig, type AgentRegistry } from '../agents/index.js';
 
 type MessageCallback = (agentType: string, content: string, projectName: string, channelId: string) => void;
 
@@ -29,9 +29,11 @@ export class DiscordClient {
   private targetChannel?: TextChannel;
   private messageCallback?: MessageCallback;
   private channelMapping: Map<string, ChannelInfo> = new Map();
+  private registry: AgentRegistry;
 
-  constructor(token: string) {
+  constructor(token: string, registry?: AgentRegistry) {
     this.token = token;
+    this.registry = registry || defaultAgentRegistry;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -84,7 +86,7 @@ export class DiscordClient {
 
   private parseChannelName(channelName: string): ChannelInfo | null {
     // Use agent registry to parse channel names dynamically
-    const result = agentRegistry.parseChannelName(channelName);
+    const result = this.registry.parseChannelName(channelName);
     if (result) {
       return {
         projectName: result.projectName,
@@ -162,8 +164,8 @@ export class DiscordClient {
   ): Promise<boolean> {
     const channel = await this.client.channels.fetch(channelId);
     if (!channel?.isTextBased()) {
-      console.warn(`Channel ${channelId} is not a text channel, auto-approving`);
-      return true;
+      console.warn(`Channel ${channelId} is not a text channel, auto-denying`);
+      return false;
     }
 
     const textChannel = channel as TextChannel;
@@ -179,7 +181,7 @@ export class DiscordClient {
       `🔒 **Permission Request**\n` +
       `Tool: \`${toolName}\`\n` +
       `\`\`\`\n${inputPreview}\n\`\`\`\n` +
-      `React ✅ to allow, ❌ to deny (${Math.round(timeoutMs / 1000)}s timeout, auto-allow on timeout)`
+      `React ✅ to allow, ❌ to deny (${Math.round(timeoutMs / 1000)}s timeout, auto-deny on timeout)`
     );
 
     await message.react('✅');
@@ -194,8 +196,8 @@ export class DiscordClient {
       });
 
       if (collected.size === 0) {
-        await message.edit(message.content + '\n\n⏰ **Timed out — auto-allowed**');
-        return true;
+        await message.edit(message.content + '\n\n⏰ **Timed out — auto-denied**');
+        return false;
       }
 
       const approved = collected.first()?.emoji.name === '✅';
@@ -204,9 +206,9 @@ export class DiscordClient {
       );
       return approved;
     } catch {
-      // On error, default to allow so we don't block the agent
-      await message.edit(message.content + '\n\n⚠️ **Error — auto-allowed**').catch(() => {});
-      return true;
+      // On error, default to deny for security
+      await message.edit(message.content + '\n\n⚠️ **Error — auto-denied**').catch(() => {});
+      return false;
     }
   }
 

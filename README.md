@@ -10,6 +10,7 @@ Discord를 통해 AI 에이전트 CLI (Claude Code, OpenCode, Codex CLI)를 원�
 - 완료 시 최종 응답 전체 전송
 - 프로젝트별 독립적인 Discord 채널
 - 글로벌 데몬으로 여러 프로젝트 동시 관리
+- YOLO 모드: 에이전트 권한 확인 없이 자동 실행
 
 ## Architecture
 
@@ -27,6 +28,11 @@ Discord                    Bridge Daemon                tmux
 **메시지 흐름:**
 - **Discord → Agent**: 사용자 메시지 → Bridge → tmux send-keys
 - **Agent → Discord**: 30초 폴링으로 tmux pane 캡처 → 변경 감지 → Discord 전송
+
+**설계 원칙:**
+- 의존성 주입(DI) 패턴으로 모든 모듈 테스트 가능
+- 인터페이스 기반 추상화: `IStorage`, `ICommandExecutor`, `IEnvironment`, `IStateManager`, `IProcessManager`
+- 하위 호환성 유지: 기존 싱글톤 export 유지하면서 생성자 DI 지원
 
 ## Installation
 
@@ -86,6 +92,22 @@ agent-discord go --yolo        # YOLO 모드 (권한 확인 건너뜀)
 - 변경이 있을 때만 알림 → 메시지 폭탄 없음
 - 프로그램이 꺼져 있으면 → 데몬이 안 돌아가므로 알림 없음
 
+## YOLO 모드
+
+`--yolo` 플래그를 사용하면 에이전트가 권한 확인 없이 자동으로 실행됩니다.
+
+```bash
+agent-discord go --yolo           # 자동 감지된 에이전트를 YOLO 모드로 시작
+agent-discord go claude --yolo    # Claude Code를 YOLO 모드로 시작
+```
+
+**동작 방식:**
+- Claude Code: `--dangerously-skip-permissions` 플래그 자동 추가
+- tmux 세션에 `AGENT_DISCORD_YOLO=1` 환경변수 설정
+- 도구 실행 시 사용자 승인 없이 자동 허용
+
+**주의:** YOLO 모드는 에이전트가 파일 수정, 명령 실행 등을 확인 없이 수행합니다. 신뢰할 수 있는 환경에서만 사용하세요.
+
 ## CLI Commands
 
 | Command | Description |
@@ -108,7 +130,7 @@ agent-discord go --yolo        # YOLO 모드 (권한 확인 건너뜀)
 discord-agent-bridge/
 ├── bin/agent-discord.ts       # CLI 진입점
 ├── src/
-│   ├── index.ts               # 메인 브릿지 서버
+│   ├── index.ts               # 메인 브릿지 서버 (AgentBridge)
 │   ├── daemon.ts              # 글로벌 데몬 매니저
 │   ├── capture/               # tmux 캡처 폴링 시스템
 │   │   ├── poller.ts          # 30초 폴링 루프
@@ -118,7 +140,24 @@ discord-agent-bridge/
 │   ├── tmux/                  # tmux 세션 관리
 │   ├── agents/                # 에이전트 어댑터 (claude, opencode, codex)
 │   ├── state/                 # 프로젝트 상태 관리
-│   └── config/                # 설정
+│   ├── config/                # 설정 관리
+│   ├── types/                 # 타입 정의 및 DI 인터페이스
+│   │   ├── index.ts           # 공통 타입
+│   │   └── interfaces.ts      # DI 인터페이스
+│   └── infra/                 # 인프라 구현체
+│       ├── shell.ts           # ShellCommandExecutor (execSync 래퍼)
+│       ├── storage.ts         # FileStorage (fs 래퍼)
+│       └── environment.ts     # SystemEnvironment (process.env 래퍼)
+├── tests/                     # Vitest 단위 테스트
+│   ├── capture/               # parser, detector, poller 테스트
+│   ├── agents/                # 에이전트 어댑터 테스트
+│   ├── discord/               # Discord 클라이언트 테스트
+│   ├── tmux/                  # TmuxManager 테스트
+│   ├── state/                 # StateManager 테스트
+│   ├── config/                # ConfigManager 테스트
+│   ├── daemon.test.ts         # DaemonManager 테스트
+│   └── index.test.ts          # AgentBridge 테스트
+├── vitest.config.ts           # Vitest 설정
 └── dist/                      # 빌드 결과물
 ```
 
@@ -150,10 +189,34 @@ agent-discord status
 ## Development
 
 ```bash
-npm run dev        # tsx로 개발 모드 실행
-npm run build      # tsup으로 빌드
-npm run typecheck  # TypeScript 타입 체크
+npm run dev          # tsx로 개발 모드 실행
+npm run build        # tsup으로 빌드
+npm run typecheck    # TypeScript 타입 체크
+npm test             # Vitest 단위 테스트 (129개)
+npm run test:watch   # 테스트 워치 모드
+npm run test:coverage # 테스트 커버리지
 ```
+
+### Testing
+
+Vitest 기반 129개 단위 테스트:
+
+| 테스트 파일 | 테스트 수 | 대상 |
+|------------|----------|------|
+| capture/parser | 21 | stripAnsi, cleanCapture, splitForDiscord |
+| capture/detector | 5 | detectState |
+| capture/poller | 12 | CapturePoller 폴링 로직 |
+| agents/base | 7 | AgentRegistry |
+| agents/claude | 5 | ClaudeAdapter |
+| agents/adapters | 4 | OpenCode, Codex |
+| tmux/manager | 17 | TmuxManager |
+| state/index | 13 | StateManager |
+| config/index | 10 | ConfigManager |
+| discord/client | 10 | DiscordClient |
+| daemon | 12 | DaemonManager |
+| index | 13 | AgentBridge |
+
+모든 모듈은 DI 패턴으로 Mock 주입이 가능하여 외부 의존성 없이 테스트됩니다.
 
 ## License
 

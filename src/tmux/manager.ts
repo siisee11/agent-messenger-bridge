@@ -2,21 +2,22 @@
  * tmux session management
  */
 
-import { execSync } from 'child_process';
 import type { TmuxSession } from '../types/index.js';
+import type { ICommandExecutor } from '../types/interfaces.js';
+import { ShellCommandExecutor } from '../infra/shell.js';
 
 export class TmuxManager {
   private sessionPrefix: string;
+  private executor: ICommandExecutor;
 
-  constructor(sessionPrefix: string = 'agent-') {
+  constructor(sessionPrefix: string = 'agent-', executor?: ICommandExecutor) {
     this.sessionPrefix = sessionPrefix;
+    this.executor = executor || new ShellCommandExecutor();
   }
 
   listSessions(): TmuxSession[] {
     try {
-      const output = execSync('tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}"', {
-        encoding: 'utf-8',
-      });
+      const output = this.executor.exec('tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}"');
 
       return output
         .trim()
@@ -38,22 +39,26 @@ export class TmuxManager {
   }
 
   createSession(name: string): void {
-    execSync(`tmux new-session -d -s ${this.sessionPrefix}${name}`);
+    const escapedName = this.escapeShellArg(`${this.sessionPrefix}${name}`);
+    this.executor.exec(`tmux new-session -d -s ${escapedName}`);
   }
 
   sendKeys(sessionName: string, keys: string): void {
-    execSync(`tmux send-keys -t ${this.sessionPrefix}${sessionName} "${keys}" Enter`);
+    const escapedTarget = this.escapeShellArg(`${this.sessionPrefix}${sessionName}`);
+    const escapedKeys = this.escapeShellArg(keys);
+    this.executor.exec(`tmux send-keys -t ${escapedTarget} ${escapedKeys}`);
+    this.executor.exec(`tmux send-keys -t ${escapedTarget} Enter`);
   }
 
   capturePane(sessionName: string): string {
-    return execSync(`tmux capture-pane -t ${this.sessionPrefix}${sessionName} -p`, {
-      encoding: 'utf-8',
-    });
+    const escapedTarget = this.escapeShellArg(`${this.sessionPrefix}${sessionName}`);
+    return this.executor.exec(`tmux capture-pane -t ${escapedTarget} -p`);
   }
 
   sessionExists(name: string): boolean {
     try {
-      execSync(`tmux has-session -t ${this.sessionPrefix}${name}`, {
+      const escapedTarget = this.escapeShellArg(`${this.sessionPrefix}${name}`);
+      this.executor.execVoid(`tmux has-session -t ${escapedTarget}`, {
         stdio: 'ignore',
       });
       return true;
@@ -88,9 +93,7 @@ export class TmuxManager {
     const escapedWindowName = this.escapeShellArg(windowName);
 
     try {
-      execSync(`tmux new-window -t ${sessionName} -n ${escapedWindowName}`, {
-        encoding: 'utf-8',
-      });
+      this.executor.exec(`tmux new-window -t ${sessionName} -n ${escapedWindowName}`);
     } catch (error) {
       throw new Error(`Failed to create window '${windowName}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -102,9 +105,7 @@ export class TmuxManager {
    */
   listWindows(sessionName: string): string[] {
     try {
-      const output = execSync(`tmux list-windows -t ${sessionName} -F "#{window_name}"`, {
-        encoding: 'utf-8',
-      });
+      const output = this.executor.exec(`tmux list-windows -t ${sessionName} -F "#{window_name}"`);
 
       return output
         .trim()
@@ -125,12 +126,8 @@ export class TmuxManager {
 
     try {
       // Send keys and Enter separately for reliability
-      execSync(`tmux send-keys -t ${target} ${escapedKeys}`, {
-        encoding: 'utf-8',
-      });
-      execSync(`tmux send-keys -t ${target} Enter`, {
-        encoding: 'utf-8',
-      });
+      this.executor.exec(`tmux send-keys -t ${target} ${escapedKeys}`);
+      this.executor.exec(`tmux send-keys -t ${target} Enter`);
     } catch (error) {
       throw new Error(`Failed to send keys to window '${windowName}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -144,9 +141,7 @@ export class TmuxManager {
     const target = `${sessionName}:${windowName}`;
 
     try {
-      return execSync(`tmux capture-pane -t ${target} -p`, {
-        encoding: 'utf-8',
-      });
+      return this.executor.exec(`tmux capture-pane -t ${target} -p`);
     } catch (error) {
       throw new Error(`Failed to capture pane from window '${windowName}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -180,9 +175,7 @@ export class TmuxManager {
     const escapedValue = this.escapeShellArg(value);
 
     try {
-      execSync(`tmux set-environment -t ${sessionName} ${escapedKey} ${escapedValue}`, {
-        encoding: 'utf-8',
-      });
+      this.executor.exec(`tmux set-environment -t ${sessionName} ${escapedKey} ${escapedValue}`);
     } catch (error) {
       throw new Error(
         `Failed to set env ${key} on session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`
