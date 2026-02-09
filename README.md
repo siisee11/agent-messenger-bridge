@@ -23,7 +23,7 @@ The bridge uses a polling-based architecture that captures tmux pane content eve
 - **Project Isolation**: Each project gets a dedicated Discord channel
 - **Single Daemon**: One Discord bot connection manages all projects
 - **Session Management**: Persistent tmux sessions survive disconnections
-- **YOLO Mode**: Optional `--yolo` flag runs agents with `--dangerously-skip-permissions`
+- **YOLO Mode**: Optional `--yolo` flag runs Claude Code with `--dangerously-skip-permissions`
 - **Sandbox Mode**: Optional `--sandbox` flag runs Claude Code in isolated Docker container
 - **Rich CLI**: Intuitive commands for setup, control, and monitoring
 - **Type-Safe**: Written in TypeScript with dependency injection pattern
@@ -67,6 +67,15 @@ npm link
 agent-discord setup YOUR_DISCORD_BOT_TOKEN
 ```
 
+The `setup` command saves your token and auto-detects the Discord server ID. You can verify or change settings later:
+
+```bash
+agent-discord config --show              # View current configuration
+agent-discord config --server SERVER_ID  # Change server ID manually
+```
+
+> **Note**: `setup` is required for initial configuration — it auto-detects the server ID by connecting to Discord. The `config` command only updates individual values without auto-detection.
+
 ### 2. Start Working
 
 ```bash
@@ -80,8 +89,8 @@ agent-discord go
 
 ```bash
 agent-discord go claude        # Specify an agent explicitly
-agent-discord go --yolo        # YOLO mode (skip permissions)
-agent-discord go --sandbox     # Sandbox mode (Docker isolation)
+agent-discord go --yolo        # YOLO mode (skip permissions, Claude Code only)
+agent-discord go --sandbox     # Sandbox mode (Docker isolation, Claude Code only)
 ```
 
 Your AI agent is now running in tmux, with output streaming to Discord every 30 seconds.
@@ -213,8 +222,8 @@ Quick start: start daemon, setup project if needed, and attach to tmux. Works wi
 ```bash
 agent-discord go              # Auto-detect agent, setup & attach
 agent-discord go claude       # Use a specific agent
-agent-discord go --yolo       # YOLO mode (skip permissions)
-agent-discord go --sandbox    # Sandbox mode (Docker isolation for Claude Code)
+agent-discord go --yolo       # YOLO mode (skip permissions, Claude Code only)
+agent-discord go --sandbox    # Sandbox mode (Docker isolation, Claude Code only)
 agent-discord go --no-attach  # Start without attaching to tmux
 ```
 
@@ -274,7 +283,7 @@ This approach is simpler and more reliable than hook-based systems, with minimal
 | Agent | Binary | Auto-Detect | YOLO Support | Sandbox Support | Notes |
 |-------|--------|-------------|--------------|-----------------|-------|
 | **Claude Code** | `claude` | Yes | Yes | Yes | Official Anthropic CLI |
-| **OpenCode** | `opencode` | Yes | Yes | No | Open-source alternative |
+| **OpenCode** | `opencode` | Yes | No | No | Open-source alternative |
 
 ### Agent Detection
 

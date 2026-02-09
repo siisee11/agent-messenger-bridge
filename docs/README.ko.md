@@ -21,7 +21,7 @@ Discord Agent Bridge는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Disc
 - **프로젝트 격리**: 각 프로젝트마다 전용 Discord 채널 생성
 - **단일 데몬**: 하나의 Discord 봇 연결로 모든 프로젝트 관리
 - **세션 관리**: tmux 세션은 연결 해제 후에도 유지
-- **YOLO 모드**: `--yolo` 플래그로 권한 확인 없이 에이전트 실행
+- **YOLO 모드**: `--yolo` 플래그로 Claude Code를 권한 확인 없이 실행
 - **Sandbox 모드**: `--sandbox` 플래그로 Claude Code를 Docker 컨테이너에서 격리 실행
 - **풍부한 CLI**: 설정, 제어, 모니터링을 위한 직관적인 명령어
 - **타입 안전**: 의존성 주입 패턴으로 작성된 TypeScript
@@ -65,6 +65,15 @@ npm link
 agent-discord setup YOUR_DISCORD_BOT_TOKEN
 ```
 
+`setup` 명령어는 토큰을 저장하고 Discord 서버 ID를 자동 감지합니다. 설정을 확인하거나 변경하려면:
+
+```bash
+agent-discord config --show              # 현재 설정 조회
+agent-discord config --server SERVER_ID  # 서버 ID 수동 변경
+```
+
+> **참고**: 최초 설정은 반드시 `setup`을 사용하세요 — Discord에 연결하여 서버 ID를 자동 감지합니다. `config` 명령어는 자동 감지 없이 개별 값만 변경합니다.
+
 ### 2. 작업 시작
 
 ```bash
@@ -78,8 +87,8 @@ agent-discord go
 
 ```bash
 agent-discord go claude        # 에이전트를 직접 지정
-agent-discord go --yolo        # YOLO 모드 (권한 확인 건너뛰기)
-agent-discord go --sandbox     # Sandbox 모드 (Docker 격리)
+agent-discord go --yolo        # YOLO 모드 (권한 확인 건너뛰기, Claude Code 전용)
+agent-discord go --sandbox     # Sandbox 모드 (Docker 격리, Claude Code 전용)
 ```
 
 AI 에이전트가 tmux에서 실행되고, 30초마다 출력이 Discord로 스트리밍됩니다.
@@ -211,8 +220,8 @@ tmux에서 에이전트를 중지하지 않고 분리하려면 `Ctrl-b d`를 누
 ```bash
 agent-discord go              # 에이전트 자동 감지, 설정 & 연결
 agent-discord go claude       # 특정 에이전트 사용
-agent-discord go --yolo       # YOLO 모드 (권한 확인 건너뛰기)
-agent-discord go --sandbox    # Sandbox 모드 (Claude Code Docker 격리)
+agent-discord go --yolo       # YOLO 모드 (권한 확인 건너뛰기, Claude Code 전용)
+agent-discord go --sandbox    # Sandbox 모드 (Docker 격리, Claude Code 전용)
 agent-discord go --no-attach  # tmux에 연결하지 않고 시작
 ```
 
@@ -272,7 +281,7 @@ agent-discord go --no-attach  # tmux에 연결하지 않고 시작
 | 에이전트 | 바이너리 | 자동 감지 | YOLO 지원 | Sandbox 지원 | 비고 |
 |----------|----------|-----------|-----------|-------------|------|
 | **Claude Code** | `claude` | Yes | Yes | Yes | 공식 Anthropic CLI |
-| **OpenCode** | `opencode` | Yes | Yes | No | 오픈소스 대안 |
+| **OpenCode** | `opencode` | Yes | No | No | 오픈소스 대안 |
 
 ### 에이전트 감지
 
