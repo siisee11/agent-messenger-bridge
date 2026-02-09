@@ -35,13 +35,11 @@ Complete step-by-step guide to setting up your Discord bot for the Discord Agent
 
 1. Scroll down to the **"Privileged Gateway Intents"** section
 2. Enable the following intents:
-   - ✅ **MESSAGE CONTENT INTENT** (Required)
-   - ✅ **SERVER MEMBERS INTENT** (Optional, for member-related features)
+   - ✅ **MESSAGE CONTENT INTENT** (Required - read message text)
+   - ✅ **SERVER MEMBERS INTENT** (Optional)
 3. Click **"Save Changes"** at the bottom
 
-**Why these intents are needed:**
-- **MESSAGE CONTENT INTENT**: Allows the bot to read message text for commands and interactions
-- **SERVER MEMBERS INTENT**: Allows the bot to track server members (optional)
+> **Note**: The bot also uses the `GuildMessageReactions` intent (non-privileged, enabled automatically) for interactive approval requests.
 
 ---
 
@@ -87,10 +85,9 @@ In the **"BOT PERMISSIONS"** section that appears below, check:
 **Text Permissions:**
 - ✅ **Send Messages** - Required to send agent output
 - ✅ **Send Messages in Threads** - For thread support
-- ✅ **Embed Links** - For rich message formatting
-- ✅ **Attach Files** - For sending logs or files
-- ✅ **Read Message History** - For context tracking
-- ✅ **Add Reactions** - For interactive responses (optional)
+- ✅ **Embed Links** - Required for interactive question embeds
+- ✅ **Read Message History** - Required for context tracking and reactions
+- ✅ **Add Reactions** - Required for tool approval requests
 
 **General Permissions:**
 - ✅ **View Channels** - Required to see and access channels
@@ -116,11 +113,10 @@ In the **"BOT PERMISSIONS"** section that appears below, check:
 |------------|-----------|---------|
 | View Channels | ✅ Yes | Bot must see channels to operate |
 | Send Messages | ✅ Yes | Send agent output to Discord |
-| Read Message History | ✅ Yes | Track conversation context |
-| Embed Links | ⚠️ Recommended | Format rich messages |
-| Attach Files | ⚠️ Recommended | Send logs or output files |
-| Manage Channels | ✅ Yes | Auto-create agent channels on `init`/`go` |
-| Add Reactions | ❌ Optional | Interactive button responses |
+| Read Message History | ✅ Yes | Track conversation context and collect reactions |
+| Embed Links | ✅ Yes | Format rich embeds for interactive questions |
+| Manage Channels | ✅ Yes | Auto-create/delete agent channels on `init`/`go`/`stop` |
+| Add Reactions | ✅ Yes | Interactive tool approval requests |
 
 ### Permission Issues
 

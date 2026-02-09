@@ -32,8 +32,8 @@ The bridge uses a polling-based architecture that captures tmux pane content eve
 - **Node.js**: Version 18 or higher
 - **tmux**: Version 3.0 or higher
 - **Discord Bot**: Create a bot following the [Discord Bot Setup Guide](docs/DISCORD_SETUP.md)
-  - Required permissions: Send Messages, Manage Channels, Read Message History
-  - Required intents: Guilds, GuildMessages, MessageContent
+  - Required permissions: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
+  - Required intents: Guilds, GuildMessages, MessageContent, GuildMessageReactions
 - **AI Agent**: At least one of:
   - [Claude Code](https://claude.ai/claude-code) (requires API key)
   - [OpenCode](https://github.com/OpenCodeAI/opencode) (requires API key)

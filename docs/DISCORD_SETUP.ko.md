@@ -35,13 +35,11 @@ Discord Agent Bridge를 위한 Discord 봇 설정 완전 가이드입니다.
 
 1. **"Privileged Gateway Intents"** 섹션으로 스크롤합니다
 2. 다음 인텐트를 활성화합니다:
-   - ✅ **MESSAGE CONTENT INTENT** (필수)
-   - ✅ **SERVER MEMBERS INTENT** (선택, 멤버 관련 기능용)
+   - ✅ **MESSAGE CONTENT INTENT** (필수 - 메시지 텍스트 읽기)
+   - ✅ **SERVER MEMBERS INTENT** (선택)
 3. 하단의 **"Save Changes"**를 클릭합니다
 
-**이 인텐트가 필요한 이유:**
-- **MESSAGE CONTENT INTENT**: 봇이 명령어와 상호작용을 위해 메시지 텍스트를 읽을 수 있게 합니다
-- **SERVER MEMBERS INTENT**: 봇이 서버 멤버를 추적할 수 있게 합니다 (선택사항)
+> **참고**: 봇은 인터랙티브 승인 요청을 위해 `GuildMessageReactions` 인텐트도 사용합니다 (비특권 인텐트, 자동 활성화).
 
 ---
 
@@ -87,10 +85,9 @@ Discord Agent Bridge를 위한 Discord 봇 설정 완전 가이드입니다.
 **텍스트 권한:**
 - ✅ **Send Messages** - 에이전트 출력 전송에 필요
 - ✅ **Send Messages in Threads** - 쓰레드 지원용
-- ✅ **Embed Links** - 리치 메시지 포맷팅용
-- ✅ **Attach Files** - 로그나 파일 전송용
-- ✅ **Read Message History** - 컨텍스트 추적용
-- ✅ **Add Reactions** - 인터랙티브 응답용 (선택)
+- ✅ **Embed Links** - 인터랙티브 질문 임베드에 필수
+- ✅ **Read Message History** - 컨텍스트 추적 및 리액션 수집에 필수
+- ✅ **Add Reactions** - 도구 승인 요청에 필수
 
 **일반 권한:**
 - ✅ **View Channels** - 채널 보기 및 접근에 필요
@@ -116,11 +113,10 @@ Discord Agent Bridge를 위한 Discord 봇 설정 완전 가이드입니다.
 |------|----------|------|
 | View Channels (채널 보기) | ✅ 필수 | 봇이 작동하려면 채널을 볼 수 있어야 함 |
 | Send Messages (메시지 전송) | ✅ 필수 | 에이전트 출력을 Discord로 전송 |
-| Read Message History (메시지 기록 읽기) | ✅ 필수 | 대화 컨텍스트 추적 |
-| Embed Links (링크 임베드) | ⚠️ 권장 | 리치 메시지 포맷팅 |
-| Attach Files (파일 첨부) | ⚠️ 권장 | 로그나 출력 파일 전송 |
-| Manage Channels (채널 관리) | ✅ 필수 | `init`/`go` 시 에이전트 채널 자동 생성 |
-| Add Reactions (반응 추가) | ❌ 선택 | 인터랙티브 버튼 응답 |
+| Read Message History (메시지 기록 읽기) | ✅ 필수 | 대화 컨텍스트 추적 및 리액션 수집 |
+| Embed Links (링크 임베드) | ✅ 필수 | 인터랙티브 질문 임베드 포맷팅 |
+| Manage Channels (채널 관리) | ✅ 필수 | `init`/`go`/`stop` 시 채널 생성/삭제 |
+| Add Reactions (반응 추가) | ✅ 필수 | 도구 승인 요청 인터랙션 |
 
 ### 권한 문제
 

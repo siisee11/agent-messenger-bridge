@@ -33,8 +33,8 @@ Discord Agent Bridge는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Disc
 - **Node.js**: 버전 18 이상
 - **tmux**: 버전 3.0 이상
 - **Discord Bot**: [Discord 봇 설정 가이드](docs/DISCORD_SETUP.ko.md)를 따라 봇 생성
-  - 필수 권한: Send Messages, Manage Channels, Read Message History
-  - 필수 인텐트: Guilds, GuildMessages, MessageContent
+  - 필수 권한: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
+  - 필수 인텐트: Guilds, GuildMessages, MessageContent, GuildMessageReactions
 - **AI 에이전트**: 다음 중 하나 이상:
   - [Claude Code](https://claude.ai/claude-code) (API 키 필요)
   - [OpenCode](https://github.com/OpenCodeAI/opencode) (API 키 필요)
