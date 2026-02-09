@@ -46,8 +46,8 @@ The bridge uses a polling-based architecture that captures tmux pane content eve
   - Required permissions: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
   - Required intents: Guilds, GuildMessages, MessageContent, GuildMessageReactions
 - **AI Agent**: At least one of:
-  - [Claude Code](https://claude.ai/claude-code) (requires API key)
-  - [OpenCode](https://github.com/OpenCodeAI/opencode) (requires API key)
+  - [Claude Code](https://code.claude.com/docs/en/overview)
+  - [OpenCode](https://github.com/OpenCodeAI/opencode)
 
 ## Installation
 
@@ -498,7 +498,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Acknowledgments
 
 - Built with [Discord.js](https://discord.js.org/)
-- Powered by [Claude Code](https://claude.ai/claude-code) and [OpenCode](https://github.com/OpenCodeAI/opencode)
+- Powered by [Claude Code](https://code.claude.com/docs/en/overview) and [OpenCode](https://github.com/OpenCodeAI/opencode)
 - Inspired by [OpenClaw](https://github.com/nicepkg/openclaw)'s messenger-based command system. The motivation was to remotely control and monitor long-running AI agent tasks from anywhere via Discord.
 
 ## Support

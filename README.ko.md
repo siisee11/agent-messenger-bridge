@@ -36,8 +36,8 @@ Discord Agent Bridge는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Disc
   - 필수 권한: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
   - 필수 인텐트: Guilds, GuildMessages, MessageContent, GuildMessageReactions
 - **AI 에이전트**: 다음 중 하나 이상:
-  - [Claude Code](https://claude.ai/claude-code) (API 키 필요)
-  - [OpenCode](https://github.com/OpenCodeAI/opencode) (API 키 필요)
+  - [Claude Code](https://code.claude.com/docs/en/overview)
+  - [OpenCode](https://github.com/OpenCodeAI/opencode)
 
 ## 설치
 
@@ -439,7 +439,7 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
 ## 감사의 말
 
 - [Discord.js](https://discord.js.org/)로 구축
-- [Claude Code](https://claude.ai/claude-code)와 [OpenCode](https://github.com/OpenCodeAI/opencode) 기반
+- [Claude Code](https://code.claude.com/docs/en/overview)와 [OpenCode](https://github.com/OpenCodeAI/opencode) 기반
 - [OpenClaw](https://github.com/nicepkg/openclaw)의 메신저 기반 명령 시스템에서 영감을 받았습니다. 원격에서 오래 걸리는 AI 에이전트 작업을 Discord로 컨트롤하고 모니터링하고 싶었습니다.
 
 ## 지원
