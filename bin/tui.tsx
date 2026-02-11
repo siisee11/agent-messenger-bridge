@@ -132,7 +132,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       </box>
 
       <box backgroundColor={palette.bg} paddingLeft={1} paddingRight={1}>
-        <text fg={palette.primary} attributes={TextAttributes.BOLD}>agent-bridge&gt; </text>
+        <text fg={palette.primary} attributes={TextAttributes.BOLD}>{'agent-bridge> '}</text>
       </box>
 
       <box backgroundColor={palette.bg} paddingLeft={1} paddingRight={1}>
