@@ -62,6 +62,12 @@ npm install -g @siisee11/discode
 ### Binary install (no Bun/Node runtime required)
 
 ```bash
+curl -fsSL https://discode.chat/install | bash
+```
+
+Fallback:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/siisee11/discode/main/install | bash
 ```
 

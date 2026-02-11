@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP="discode"
+OWNER="siisee11"
+REPO="discode"
+INSTALL_DIR="$HOME/.discode/bin"
+
+mkdir -p "$INSTALL_DIR"
+
+platform_raw=$(uname -s)
+arch_raw=$(uname -m)
+
+case "$platform_raw" in
+  Darwin) platform="darwin" ;;
+  Linux) platform="linux" ;;
+  MINGW*|MSYS*|CYGWIN*) platform="windows" ;;
+  *) echo "Unsupported platform: $platform_raw"; exit 1 ;;
+esac
+
+case "$arch_raw" in
+  aarch64|arm64) arch="arm64" ;;
+  x86_64|amd64) arch="x64" ;;
+  *) echo "Unsupported architecture: $arch_raw"; exit 1 ;;
+esac
+
+suffix="$platform-$arch"
+
+if [[ "$platform" == "linux" ]]; then
+  if [[ -f /etc/alpine-release ]] || (command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl); then
+    suffix="$suffix-musl"
+  fi
+fi
+
+if [[ "$arch" == "x64" ]]; then
+  if [[ "$platform" == "linux" ]] && ! grep -qi avx2 /proc/cpuinfo 2>/dev/null; then
+    suffix="$platform-$arch-baseline${suffix##*$arch}"
+  fi
+  if [[ "$platform" == "darwin" ]]; then
+    avx2=$(sysctl -n hw.optional.avx2_0 2>/dev/null || echo 0)
+    if [[ "$avx2" != "1" ]]; then
+      suffix="$platform-$arch-baseline"
+    fi
+  fi
+fi
+
+archive_ext="zip"
+if [[ "$platform" == "linux" ]]; then
+  archive_ext="tar.gz"
+fi
+
+version="${VERSION:-}"
+if [[ -z "$version" ]]; then
+  version=$(curl -fsSL "https://api.github.com/repos/$OWNER/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+fi
+
+filename="$APP-$suffix.$archive_ext"
+url="https://github.com/$OWNER/$REPO/releases/download/v$version/$filename"
+
+tmp_dir="${TMPDIR:-/tmp}/discode-install-$$"
+mkdir -p "$tmp_dir"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+echo "Installing $APP v$version ($suffix)"
+curl -fL "$url" -o "$tmp_dir/$filename"
+
+if [[ "$archive_ext" == "zip" ]]; then
+  unzip -q "$tmp_dir/$filename" -d "$tmp_dir"
+else
+  tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
+fi
+
+binary="$tmp_dir/$APP"
+if [[ "$platform" == "windows" ]]; then
+  binary="$tmp_dir/$APP.exe"
+fi
+
+if [[ ! -f "$binary" ]]; then
+  echo "Downloaded archive did not contain $APP binary"
+  exit 1
+fi
+
+cp "$binary" "$INSTALL_DIR/$APP"
+chmod 755 "$INSTALL_DIR/$APP"
+
+echo "Installed to: $INSTALL_DIR/$APP"
+echo "Add to PATH if needed: export PATH=$INSTALL_DIR:\$PATH"

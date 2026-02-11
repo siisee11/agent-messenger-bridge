@@ -54,7 +54,19 @@ Discode는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Discord에 연결
 ### 전역 설치
 
 ```bash
-bun add -g @siisee11/discode
+npm install -g @siisee11/discode
+```
+
+### curl 설치 (Bun/Node 런타임 없이 사용)
+
+```bash
+curl -fsSL https://discode.chat/install | bash
+```
+
+대체 경로:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siisee11/discode/main/install | bash
 ```
 
 ### 소스에서 설치
