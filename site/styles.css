@@ -1,10 +1,9 @@
 :root {
-  --bg: #f4f6f8;
-  --ink: #11161a;
-  --muted: #4b5a66;
-  --line: #d8e0e6;
-  --panel: #ffffff;
-  --accent: #0b7a6b;
+  --bg: #f3f3f5;
+  --surface: #f8f8f9;
+  --line: #d7d7db;
+  --ink: #1c1c20;
+  --muted: #66666d;
 }
 
 * {
@@ -14,131 +13,179 @@
 body {
   margin: 0;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  font-family: "Manrope", sans-serif;
+  font-family: "IBM Plex Sans KR", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at top left, #ffffff, #f1f4f7 48%, #edf1f4);
+  background: var(--bg);
 }
 
-main.shell {
-  flex: 1;
+.page {
+  width: min(106rem, 100%);
+  margin: 0 auto;
+  min-height: 100vh;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
 }
 
 .shell {
-  width: min(56rem, calc(100% - 2rem));
+  width: min(92rem, calc(100% - 3rem));
   margin: 0 auto;
 }
 
-header.shell {
-  display: flex;
+.topbar {
+  height: 6.4rem;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 0;
-}
-
-.brand,
-.repo {
-  text-decoration: none;
-  color: var(--ink);
-  font-weight: 700;
+  gap: 1.2rem;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
+  text-decoration: none;
+  color: var(--ink);
 }
 
 .brand-icon {
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 2.45rem;
+  height: 2.45rem;
   object-fit: contain;
 }
 
 .brand-label {
-  font-family: "Nunito Sans", "Manrope", sans-serif;
-  font-size: 1.68rem;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  line-height: 1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 2.06rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
 }
 
-.repo {
+.topnav {
+  display: flex;
+  justify-content: center;
+  gap: 2.5rem;
+}
+
+.topnav a {
+  text-decoration: none;
+  color: #242428;
+  font-size: 1.02rem;
+}
+
+.header-cta {
+  text-decoration: none;
+  background: #1d1a1c;
+  color: #f8f8f8;
+  padding: 0.78rem 1.34rem;
+  border-radius: 0.52rem;
   font-weight: 600;
-  color: var(--muted);
 }
 
 .hero {
-  padding: 4rem 0 1.6rem;
+  padding: 8.6rem 0 2rem;
 }
 
-.tag {
+.news {
   margin: 0;
-  color: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 1.04rem;
+}
+
+.news span {
+  display: inline-block;
+  margin-right: 0.58rem;
+  padding: 0.16rem 0.48rem;
+  border-radius: 0.2rem;
+  background: #222126;
+  color: #f6f7f8;
+  font-size: 0.96rem;
 }
 
 h1 {
-  margin: 0.8rem 0 1rem;
-  max-width: 16ch;
-  font-size: clamp(2rem, 7vw, 3.9rem);
-  line-height: 1;
+  margin: 1.25rem 0 1rem;
+  max-width: 20ch;
+  font-size: clamp(2.2rem, 5vw, 4.2rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
 }
 
-.hero p {
+.subtitle {
   margin: 0;
-  max-width: 58ch;
+  max-width: 52ch;
   color: var(--muted);
-  line-height: 1.55;
+  font-size: 1.03rem;
+  line-height: 1.6;
 }
 
-.panel {
-  margin-top: 1rem;
+.install-card {
+  margin-top: 1.8rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: var(--panel);
-  padding: 1.1rem;
+  border-radius: 0.7rem;
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.panel-title {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 700;
+.tabs {
+  height: 4.1rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 1.45rem;
+  padding: 0 1.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  color: #9a9ba0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1.02rem;
+}
+
+.tab-active {
+  color: #1f1f22;
+  border-bottom: 3px solid #1f1f22;
 }
 
 pre,
 code {
-  font-family: "JetBrains Mono", monospace;
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
 }
 
 pre {
-  margin: 0.7rem 0 0;
-  background: #0f161b;
-  border: 1px solid #202f39;
-  color: #d4e1e8;
-  border-radius: 0.75rem;
-  padding: 0.9rem;
+  padding: 1.55rem 1.35rem;
+  color: #3b3d44;
+  background: var(--surface);
+  font-size: 1.02rem;
   overflow-x: auto;
-  line-height: 1.5;
-  font-size: 0.86rem;
 }
 
-.footer {
-  padding: 1.6rem 0 2.4rem;
-}
+@media (max-width: 64rem) {
+  .topbar {
+    height: auto;
+    padding: 1rem 0;
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
 
-.footer p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.92rem;
-}
+  .topnav {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
 
-@media (max-width: 52rem) {
+  .header-cta {
+    width: fit-content;
+  }
+
   .hero {
-    padding-top: 2.8rem;
+    padding-top: 4rem;
+  }
+
+  .shell {
+    width: min(92rem, calc(100% - 2rem));
   }
 }

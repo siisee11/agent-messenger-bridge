@@ -11,39 +11,45 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Nunito+Sans:wght@800;900&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" type="image/png" href="./discode.png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header class="shell">
-      <a class="brand" href="#">
-        <img src="./discode.png" alt="Discode crab icon" class="brand-icon" />
-        <span class="brand-label">Discode</span>
-      </a>
-      <a class="repo" href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
-    </header>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="#">
+          <img src="./discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/siisee11/discode/blob/main/README.md" target="_blank" rel="noreferrer">문서</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">엔터프라이즈</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">Zen</a>
+        </nav>
+        <a class="header-cta" href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">무료</a>
+      </header>
 
-    <main class="shell">
-      <section class="hero">
-        <p class="tag">Open-source AI bridge</p>
-        <h1>Orchestrate coding agents on Discord.</h1>
-        <p>Discode connects tmux-based agent sessions to Discord channels.</p>
-      </section>
+      <main class="shell">
+        <section class="hero">
+          <p class="news"><span>새소식</span> Discode 0.1.1 release. Install globally with npm or bun.</p>
+          <h1>Orchestrate coding agents on Discord.</h1>
+          <p class="subtitle">Run sessions, stream tmux output, and keep your whole team in sync in one channel.</p>
+        </section>
 
-      <section id="quickstart" class="panel">
-        <p class="panel-title">Quickstart</p>
-        <pre><code>bun add -g @siisee11/discode
-discode setup YOUR_DISCORD_BOT_TOKEN
-cd ~/projects/your-app
-discode go</code></pre>
-      </section>
-    </main>
-
-    <footer class="shell footer">
-      <p>Lightweight remote collaboration for AI coding sessions.</p>
-    </footer>
+        <section class="install-card" aria-label="Install command">
+          <div class="tabs">
+            <span class="tab tab-active">bun</span>
+            <span class="tab">npm</span>
+            <span class="tab">curl</span>
+            <span class="tab">brew</span>
+          </div>
+          <pre><code>bun add -g @siisee11/discode</code></pre>
+        </section>
+      </main>
+    </div>
   </body>
 </html>
