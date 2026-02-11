@@ -81,6 +81,24 @@ function applyTmuxCliOverrides(base: BridgeConfig, options: TmuxCliOptions): Bri
   };
 }
 
+function ensureProjectTuiPane(
+  tmux: TmuxManager,
+  sessionName: string,
+  windowName: string,
+  options: TmuxCliOptions,
+): void {
+  const discodeRunner = resolve(import.meta.dirname, './discode.js');
+  const commandParts = ['bun', discodeRunner, 'tui'];
+  if (options.tmuxSessionMode) {
+    commandParts.push('--tmux-session-mode', options.tmuxSessionMode);
+  }
+  if (options.tmuxSharedSessionName) {
+    commandParts.push('--tmux-shared-session-name', options.tmuxSharedSessionName);
+  }
+  const tuiCommand = commandParts.map((part) => escapeShellArg(part)).join(' ');
+  tmux.ensureTuiPane(sessionName, windowName, tuiCommand);
+}
+
 function prompt(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -609,21 +627,11 @@ async function goCommand(
       // Summary
     const projectState = stateManager.getProject(projectName);
     const sessionName = projectState?.tmuxSession || `${effectiveConfig.tmux.sessionPrefix}${projectName}`;
-    if (projectState) {
-      const statusWindowName = projectState.tmuxWindows?.[agentName] || agentName;
-      const statusRunner = resolve(import.meta.dirname, './tui-statusbar.js');
-      const statusAi = agentRegistry.get(agentName)?.config.displayName || agentName;
-      const statusChannel = `discord#${agentName}-${projectName}`;
-      const statusCommand =
-        `AGENT_STATUS_AI=${escapeShellArg(statusAi)} ` +
-        `AGENT_STATUS_CWD=${escapeShellArg(projectPath)} ` +
-        `AGENT_STATUS_CHANNEL=${escapeShellArg(statusChannel)} ` +
-        `bun ${escapeShellArg(statusRunner)}`;
-      try {
-        tmux.ensureStatusPane(sessionName, statusWindowName, projectPath, statusChannel, statusCommand);
-      } catch (error) {
-        console.log(chalk.yellow(`⚠️ Could not start status bar pane: ${error instanceof Error ? error.message : String(error)}`));
-      }
+    const statusWindowName = projectState?.tmuxWindows?.[agentName] || agentName;
+    try {
+      ensureProjectTuiPane(tmux, sessionName, statusWindowName, options);
+    } catch (error) {
+      console.log(chalk.yellow(`⚠️ Could not start discode TUI pane: ${error instanceof Error ? error.message : String(error)}`));
     }
     console.log(chalk.cyan('\n✨ Ready!\n'));
     console.log(chalk.gray(`   Project:  ${projectName}`));
@@ -633,7 +641,7 @@ async function goCommand(
 
       // Attach
     if (options.attach !== false) {
-      const windowName = projectState?.tmuxWindows?.[agentName] || agentName;
+      const windowName = statusWindowName;
       const attachTarget = `${sessionName}:${windowName}`;
       console.log(chalk.cyan(`\n📺 Attaching to ${attachTarget}...\n`));
       attachToTmux(sessionName, windowName);

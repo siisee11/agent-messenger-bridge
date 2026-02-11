@@ -232,6 +232,14 @@ describe('TmuxManager', () => {
       expect(executor.calls).toHaveLength(2);
       expect(executor.calls[0].command).toContain("tmux send-keys -t 'agent-session:window1.2'");
     });
+
+    it('avoids sending keys to the discode tui pane', () => {
+      executor.nextResult = '0\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tcodex\tcodex';
+      tmux.sendKeysToWindow('agent-session', 'window1', 'echo hello');
+
+      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:window1.1'");
+    });
+
   });
 
   describe('typeKeysToWindow', () => {
@@ -352,5 +360,45 @@ describe('TmuxManager', () => {
       expect(executor.calls.some(call => call.command.includes('tmux new-window'))).toBe(true);
       executor.exec = originalExec;
     });
+  });
+
+  describe('ensureTuiPane', () => {
+    it('creates a right-side split and titles it', () => {
+      const originalExec = executor.exec.bind(executor);
+      executor.exec = (command: string) => {
+        executor.calls.push({ method: 'exec', command });
+        if (command.includes('list-panes')) {
+          return '0\tcodex\tcodex';
+        }
+        if (command.includes('split-window')) {
+          return '1';
+        }
+        return '';
+      };
+
+      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+
+      expect(executor.calls.some(call => call.command.includes('tmux split-window') && call.command.includes(' -h '))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux select-pane -t 'agent-session:codex.1' -T 'discode-tui'"))).toBe(true);
+      executor.exec = originalExec;
+    });
+
+    it('reuses existing tui pane and removes duplicates', () => {
+      const originalExec = executor.exec.bind(executor);
+      executor.exec = (command: string) => {
+        executor.calls.push({ method: 'exec', command });
+        if (command.includes('list-panes')) {
+          return '2\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n0\tcodex\tcodex';
+        }
+        return '';
+      };
+
+      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+
+      expect(executor.calls.some(call => call.command.includes("tmux kill-pane -t 'agent-session:codex.2'"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes('tmux split-window'))).toBe(false);
+      executor.exec = originalExec;
+    });
+
   });
 });

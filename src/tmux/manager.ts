@@ -7,7 +7,14 @@ import type { ICommandExecutor } from '../types/interfaces.js';
 import { ShellCommandExecutor } from '../infra/shell.js';
 import { escapeShellArg } from '../infra/shell-escape.js';
 
-const STATUS_PANE_TITLE = 'discode-status';
+const TUI_PANE_TITLE = 'discode-tui';
+const TUI_PANE_COMMAND_MARKERS = ['discode.js tui', 'discode tui'];
+
+type PaneMetadata = {
+  index: number;
+  title: string;
+  startCommand: string;
+};
 
 export class TmuxManager {
   private sessionPrefix: string;
@@ -167,29 +174,15 @@ export class TmuxManager {
     const baseTarget = `${sessionName}:${windowName}`;
 
     try {
-      const escapedBaseTarget = escapeShellArg(baseTarget);
-      const output = this.executor.exec(`tmux list-panes -t ${escapedBaseTarget} -F "#{pane_index}|#{pane_title}"`);
-      const panes = output
-        .trim()
-        .split('\n')
-        .map((line) => line.trim())
-        .map((line) => {
-          const [indexRaw, titleRaw] = line.split('|');
-          const index = /^\d+$/.test(indexRaw) ? parseInt(indexRaw, 10) : NaN;
-          return {
-            index,
-            title: titleRaw || '',
-          };
-        })
-        .filter((pane) => Number.isFinite(pane.index));
+      const panes = this.listPaneMetadata(sessionName, windowName);
 
-      const nonStatusPaneIndexes = panes
-        .filter((pane) => pane.title !== STATUS_PANE_TITLE)
+      const nonTuiPaneIndexes = panes
+        .filter((pane) => pane.title !== TUI_PANE_TITLE)
         .map((pane) => pane.index);
 
-      if (nonStatusPaneIndexes.length > 0) {
-        const firstNonStatusPane = Math.min(...nonStatusPaneIndexes);
-        return `${baseTarget}.${firstNonStatusPane}`;
+      if (nonTuiPaneIndexes.length > 0) {
+        const firstNonTuiPane = Math.min(...nonTuiPaneIndexes);
+        return `${baseTarget}.${firstNonTuiPane}`;
       }
 
       const paneIndexes = panes.map((pane) => pane.index);
@@ -205,48 +198,85 @@ export class TmuxManager {
     return baseTarget;
   }
 
-  private findStatusPaneTarget(sessionName: string, windowName: string): string | undefined {
+  private listPaneMetadata(sessionName: string, windowName: string): PaneMetadata[] {
     const baseTarget = `${sessionName}:${windowName}`;
     const escapedBaseTarget = escapeShellArg(baseTarget);
+      const output = this.executor.exec(
+      `tmux list-panes -t ${escapedBaseTarget} -F "#{pane_index}\t#{pane_title}\t#{pane_start_command}"`,
+    );
 
+    return output
+      .trim()
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const [indexRaw, titleRaw = '', ...startCommandRest] = line.split('\t');
+        const index = /^\d+$/.test(indexRaw) ? parseInt(indexRaw, 10) : NaN;
+        return {
+          index,
+          title: titleRaw,
+          startCommand: startCommandRest.join('\t'),
+        };
+      })
+      .filter((pane) => Number.isFinite(pane.index));
+  }
+
+  private findTuiPaneTargets(sessionName: string, windowName: string): string[] {
+    const baseTarget = `${sessionName}:${windowName}`;
     try {
-      const output = this.executor.exec(`tmux list-panes -t ${escapedBaseTarget} -F "#{pane_index}|#{pane_title}"`);
-      const match = output
-        .trim()
-        .split('\n')
-        .map((line) => line.trim())
-        .find((line) => line.endsWith(`|${STATUS_PANE_TITLE}`));
+      const matches = this.listPaneMetadata(sessionName, windowName)
+        .map((pane) => {
+          const byTitle = pane.title === TUI_PANE_TITLE;
+          const byCommand = TUI_PANE_COMMAND_MARKERS.some((marker) => pane.startCommand.includes(marker));
+          if (!byTitle && !byCommand) return null;
 
-      if (!match) return undefined;
-      const [indexRaw] = match.split('|');
-      if (!/^\d+$/.test(indexRaw)) return undefined;
-      return `${baseTarget}.${indexRaw}`;
+          return {
+            target: `${baseTarget}.${pane.index}`,
+            byTitle,
+            index: pane.index,
+          };
+        })
+        .filter((pane): pane is { target: string; byTitle: boolean; index: number } => pane !== null)
+        .sort((a, b) => {
+          if (a.byTitle !== b.byTitle) return a.byTitle ? -1 : 1;
+          return a.index - b.index;
+        });
+
+      const uniqueTargets = new Set<string>();
+      for (const match of matches) {
+        uniqueTargets.add(match.target);
+      }
+      return [...uniqueTargets];
     } catch {
-      return undefined;
+      return [];
     }
   }
 
-  ensureStatusPane(sessionName: string, windowName: string, cwd: string, channel: string, statusCommand?: string): void {
+  ensureTuiPane(sessionName: string, windowName: string, tuiCommand: string): void {
     const baseTarget = `${sessionName}:${windowName}`;
-    const line = `cwd: ${cwd} | channel: ${channel}`;
-    const script = `while true; do printf '\\033[2K%s\\n' ${escapeShellArg(line)}; sleep 2; done`;
-    const command = statusCommand || `bash -lc ${escapeShellArg(script)}`;
 
-    const existingStatusTarget = this.findStatusPaneTarget(sessionName, windowName);
-    if (existingStatusTarget) {
-      const escapedStatusTarget = escapeShellArg(existingStatusTarget);
-      this.executor.exec(`tmux respawn-pane -k -t ${escapedStatusTarget} ${escapeShellArg(command)}`);
+    const existingTuiTargets = this.findTuiPaneTargets(sessionName, windowName);
+    if (existingTuiTargets.length > 0) {
+      const [, ...duplicateTargets] = existingTuiTargets;
+      for (const duplicateTarget of duplicateTargets) {
+        try {
+          this.executor.exec(`tmux kill-pane -t ${escapeShellArg(duplicateTarget)}`);
+        } catch {
+          // Keep going if cleanup fails for a stale pane target.
+        }
+      }
       return;
     }
 
     const activeTarget = this.resolveWindowTarget(sessionName, windowName);
     const paneIndexOutput = this.executor.exec(
-      `tmux split-window -P -F "#{pane_index}" -t ${escapeShellArg(activeTarget)} -v -l 1 ${escapeShellArg(command)}`,
+      `tmux split-window -P -F "#{pane_index}" -t ${escapeShellArg(activeTarget)} -h ${escapeShellArg(tuiCommand)}`,
     );
     const paneIndex = paneIndexOutput.trim();
     if (/^\d+$/.test(paneIndex)) {
-      const statusTarget = `${baseTarget}.${paneIndex}`;
-      this.executor.exec(`tmux select-pane -t ${escapeShellArg(statusTarget)} -T ${escapeShellArg(STATUS_PANE_TITLE)}`);
+      const tuiTarget = `${baseTarget}.${paneIndex}`;
+      this.executor.exec(`tmux select-pane -t ${escapeShellArg(tuiTarget)} -T ${escapeShellArg(TUI_PANE_TITLE)}`);
     }
 
     this.executor.exec(`tmux select-pane -t ${escapeShellArg(activeTarget)}`);
