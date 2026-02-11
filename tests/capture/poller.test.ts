@@ -185,7 +185,7 @@ describe('CapturePoller', () => {
 
     expect(discord.sendToChannel).toHaveBeenCalledWith(
       'channel1',
-      expect.stringContaining('💬 **완료**')
+      expect.stringContaining('```')
     );
   });
 
@@ -287,7 +287,7 @@ describe('CapturePoller', () => {
     await (poller as any).pollAll();
     expect(discord.sendToChannel).toHaveBeenCalledWith(
       'channel1',
-      expect.stringContaining('💬 **완료**')
+      expect.stringContaining('```')
     );
 
     discord.sendToChannel.mockClear();

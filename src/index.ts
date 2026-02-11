@@ -308,7 +308,7 @@ export class AgentBridge {
     if (eventType === 'session.idle') {
       await this.markAgentMessageCompleted(projectName, agentType);
       if (text && text.trim().length > 0) {
-        const chunks = splitForDiscord(`💬 **완료**\n\`\`\`\n${text.trim()}\n\`\`\``);
+        const chunks = splitForDiscord(`\`\`\`\n${text.trim()}\n\`\`\``);
         for (const chunk of chunks) {
           await this.discord.sendToChannel(channelId, chunk);
         }
