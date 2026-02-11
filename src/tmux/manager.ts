@@ -50,11 +50,21 @@ export class TmuxManager {
     }
   }
 
-  getSessionForPane(paneTarget: string): string | null {
+  getCurrentSession(paneTarget?: string): string | null {
+    if (paneTarget) {
+      try {
+        const output = this.executor.exec(
+          `tmux display-message -p -t ${escapeShellArg(paneTarget)} "#{session_name}"`,
+        );
+        const sessionName = output.trim();
+        if (sessionName.length > 0) return sessionName;
+      } catch {
+        // Fall through to current-client lookup.
+      }
+    }
+
     try {
-      const output = this.executor.exec(
-        `tmux display-message -p -t ${escapeShellArg(paneTarget)} "#{session_name}"`,
-      );
+      const output = this.executor.exec('tmux display-message -p "#{session_name}"');
       const sessionName = output.trim();
       return sessionName.length > 0 ? sessionName : null;
     } catch {
