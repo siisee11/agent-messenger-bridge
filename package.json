@@ -11,6 +11,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
+    "setup:opencode-plugin": "tsx scripts/setup-opencode-plugin.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

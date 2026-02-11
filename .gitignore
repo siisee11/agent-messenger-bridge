@@ -2,6 +2,7 @@ node_modules/
 dist/
 .omc/
 .claude/
+.opencode/
 *.log
 .env*
 .DS_Store

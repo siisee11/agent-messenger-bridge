@@ -10,10 +10,9 @@ import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/i
 import { CapturePoller } from './capture/index.js';
 import { splitForDiscord } from './capture/parser.js';
 import { CodexSubmitter } from './codex/submitter.js';
+import { installOpencodePlugin } from './opencode/plugin-installer.js';
 import { createServer } from 'http';
 import { parse } from 'url';
-import { mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
 import type { ProjectAgents } from './types/index.js';
 import type { IStateManager } from './types/interfaces.js';
 import type { BridgeConfig } from './types/index.js';
@@ -86,9 +85,17 @@ export class AgentBridge {
     const projects = this.stateManager.listProjects().map((project) => {
       const isOpencode = !!project.agents?.opencode;
       const alreadyHooked = !!project.eventHooks?.opencode;
-      if (!isOpencode || alreadyHooked) return project;
+      if (!isOpencode) return project;
 
-      this.installOpencodePlugin(project.projectPath);
+      try {
+        const pluginPath = installOpencodePlugin(project.projectPath);
+        console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
+      } catch (error) {
+        console.warn(`Failed to install OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      if (alreadyHooked) return project;
+
       const next = {
         ...project,
         eventHooks: {
@@ -304,99 +311,6 @@ export class AgentBridge {
     return true;
   }
 
-  private installOpencodePlugin(projectPath: string): void {
-    const pluginDir = join(projectPath, '.opencode', 'plugins');
-    const pluginPath = join(pluginDir, 'discord-agent-bridge.js');
-    const source = `export const DiscordAgentBridgePlugin = async () => {
-  let lastAssistantText = "";
-
-  const projectName = process.env.AGENT_DISCORD_PROJECT || "";
-  const port = process.env.AGENT_DISCORD_PORT || "18470";
-  const endpoint = "http://127.0.0.1:" + port + "/opencode-event";
-
-  const post = async (payload) => {
-    if (!projectName) return;
-    try {
-      await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          projectName,
-          agentType: "opencode",
-          ...payload,
-        }),
-      });
-    } catch {
-      // ignore bridge delivery failures
-    }
-  };
-
-  const textFromNode = (node) => {
-    if (typeof node === "string") return node;
-    if (!node || typeof node !== "object") return "";
-    if (Array.isArray(node)) {
-      return node.map(textFromNode).filter(Boolean).join("\n");
-    }
-
-    const obj = node;
-    if (obj.type === "text" && typeof obj.text === "string") return obj.text;
-
-    const keys = ["text", "content", "value", "parts", "message"];
-    return keys.map((k) => textFromNode(obj[k])).filter(Boolean).join("\n");
-  };
-
-  const collectAssistantText = (node, depth = 0) => {
-    if (depth > 8 || !node || typeof node !== "object") return "";
-    if (Array.isArray(node)) {
-      return node.map((item) => collectAssistantText(item, depth + 1)).filter(Boolean).join("\n");
-    }
-
-    const obj = node;
-    const role = typeof obj.role === "string" ? obj.role : "";
-    if (role === "assistant") {
-      return textFromNode(obj);
-    }
-
-    return Object.values(obj)
-      .map((value) => collectAssistantText(value, depth + 1))
-      .filter(Boolean)
-      .join("\n");
-  };
-
-  return {
-    event: async ({ event }) => {
-      if (!event || typeof event !== "object") return;
-
-      if (event.type === "message.updated") {
-        const next = collectAssistantText(event).trim();
-        if (next) {
-          lastAssistantText = next;
-        }
-      }
-
-      if (event.type === "session.error") {
-        const errorText = textFromNode(event).trim();
-        await post({ type: "session.error", text: errorText || "unknown error" });
-        return;
-      }
-
-      if (event.type === "session.idle") {
-        await post({ type: "session.idle", text: lastAssistantText });
-      }
-    },
-  };
-};
-`;
-
-    try {
-      mkdirSync(pluginDir, { recursive: true });
-      writeFileSync(pluginPath, source, 'utf-8');
-      console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
-    } catch (error) {
-      console.warn(`Failed to install OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   async setupProject(
     projectName: string,
     projectPath: string,
@@ -464,7 +378,12 @@ export class AgentBridge {
     });
 
     if (adapter.config.name === 'opencode') {
-      this.installOpencodePlugin(projectPath);
+      try {
+        const pluginPath = installOpencodePlugin(projectPath);
+        console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
+      } catch (error) {
+        console.warn(`Failed to install OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     this.tmux.startAgentInWindow(tmuxSession, windowName, `${exportPrefix}${adapter.getStartCommand(projectPath, yolo, sandbox)}`);
