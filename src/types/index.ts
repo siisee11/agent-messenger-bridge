@@ -31,8 +31,8 @@ export interface BridgeConfig {
     sessionPrefix: string;
     /**
      * Session naming strategy.
-     * - 'per-project' (default): one tmux session per project (current behavior).
-     * - 'shared': one shared tmux session, one window per project/agent.
+     * - 'shared' (default): one shared tmux session, one window per project/agent.
+     * - 'per-project': one tmux session per project.
      */
     sessionMode?: 'per-project' | 'shared';
     /**

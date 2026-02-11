@@ -343,8 +343,8 @@ export class AgentBridge {
       throw new Error('No agent specified');
     }
 
-    // Create tmux session (default: per-project, optional: shared session)
-    const sessionMode = this.bridgeConfig.tmux.sessionMode || 'per-project';
+    // Create tmux session (default: shared, optional: per-project session)
+    const sessionMode = this.bridgeConfig.tmux.sessionMode || 'shared';
     const sharedSessionName = this.bridgeConfig.tmux.sharedSessionName || 'bridge';
     const windowName =
       sessionMode === 'shared'

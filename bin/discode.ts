@@ -977,7 +977,7 @@ function addTmuxOptions<T>(y: Argv<T>) {
   return y
     .option('tmux-session-mode', {
       type: 'string',
-      describe: 'tmux session mode: per-project (default) or shared',
+      describe: 'tmux session mode: shared (default) or per-project',
     })
     .option('tmux-shared-session-name', {
       type: 'string',

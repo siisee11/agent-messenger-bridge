@@ -45,7 +45,7 @@ export class ConfigManager {
       const sessionMode =
         sessionModeRaw === 'shared' || sessionModeRaw === 'per-project'
           ? sessionModeRaw
-          : undefined;
+          : 'shared';
 
       this._config = {
         discord: {
