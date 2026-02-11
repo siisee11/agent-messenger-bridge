@@ -3,7 +3,7 @@
 
 import { TextAttributes, TextareaRenderable } from '@opentui/core';
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid';
-import { For, createMemo, createSignal, onMount } from 'solid-js';
+import { For, Show, createMemo, createSignal, onMount } from 'solid-js';
 
 type TuiInput = {
   onCommand: (command: string, append: (line: string) => void) => Promise<boolean | void>;
@@ -12,55 +12,74 @@ type TuiInput = {
 const palette = {
   bg: '#0a0a0a',
   panel: '#141414',
-  element: '#1e1e1e',
   border: '#484848',
   text: '#eeeeee',
-  muted: '#808080',
+  muted: '#9a9a9a',
   primary: '#fab283',
-  secondary: '#5c9cf5',
-  success: '#7fd88f',
-  warning: '#f5a742',
+  selectedBg: '#2b2b2b',
+  selectedFg: '#ffffff',
 };
+
+const slashCommands = [
+  { command: '/session_new', description: 'create new session' },
+  { command: '/new', description: 'alias for /session_new' },
+  { command: '/projects', description: 'list configured projects' },
+  { command: '/help', description: 'show available commands' },
+  { command: '/exit', description: 'close the TUI' },
+  { command: '/quit', description: 'close the TUI' },
+];
 
 function TuiApp(props: { input: TuiInput; close: () => void }) {
   const dims = useTerminalDimensions();
   const renderer = useRenderer();
-  const [logs, setLogs] = createSignal<string[]>([
-    'Welcome to agent-bridge TUI',
-    'Use /session_new to create a new session.',
-  ]);
+  const [value, setValue] = createSignal('');
+  const [selected, setSelected] = createSignal(0);
   let textarea: TextareaRenderable;
 
-  const append = (line: string) => {
-    setLogs((prev) => {
-      const next = [...prev, ...line.split(/\r?\n/)];
-      if (next.length <= 400) return next;
-      return next.slice(next.length - 400);
-    });
+  const query = createMemo(() => {
+    const next = value();
+    if (!next.startsWith('/')) return null;
+    if (next.includes(' ')) return null;
+    return next.slice(1).toLowerCase();
+  });
+
+  const matches = createMemo(() => {
+    const next = query();
+    if (next === null) return [];
+    if (next.length === 0) return slashCommands;
+    return slashCommands.filter((item) => item.command.slice(1).startsWith(next));
+  });
+
+  const clampSelection = (offset: number) => {
+    const items = matches();
+    if (items.length === 0) return;
+    const count = items.length;
+    const next = (selected() + offset + count) % count;
+    setSelected(next);
+  };
+
+  const applySelection = () => {
+    const item = matches()[selected()];
+    if (!item) return;
+    const next = `${item.command} `;
+    textarea.setText(next);
+    setValue(next);
+    textarea.gotoBufferEnd();
   };
 
   const submit = async () => {
     const raw = textarea?.plainText ?? '';
     const command = raw.trim();
     textarea?.setText('');
+    setValue('');
     if (!command) return;
 
-    append(`> ${command}`);
-    const shouldClose = await props.input.onCommand(command, append);
+    const shouldClose = await props.input.onCommand(command, () => {});
     if (shouldClose) {
       renderer.destroy();
       props.close();
     }
   };
-
-  const sessions = createMemo(() => {
-    const values = logs().filter((line) => line.startsWith('[project] '));
-    if (values.length > 0) return values.map((line) => line.slice('[project] '.length));
-    return ['no projects'];
-  });
-
-  const bodyRows = createMemo(() => Math.max(8, dims().height - 9));
-  const visibleLogs = createMemo(() => logs().slice(-bodyRows()));
 
   useKeyboard((evt) => {
     if (evt.ctrl && evt.name === 'c') {
@@ -76,78 +95,75 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
 
   return (
     <box width={dims().width} height={dims().height} backgroundColor={palette.bg} flexDirection="column">
-      <box backgroundColor={palette.panel} paddingLeft={1} paddingRight={1}>
-        <text fg={palette.text} attributes={TextAttributes.BOLD}>agent-bridge</text>
-      </box>
+      <box flexGrow={1} backgroundColor={palette.bg}></box>
 
-      <box backgroundColor={palette.bg} paddingLeft={1} paddingRight={1}>
-        <text fg={palette.primary}>/session_new  /projects  /help  /exit</text>
-      </box>
+      <Show when={matches().length > 0}>
+        <box backgroundColor={palette.bg} paddingLeft={2} paddingRight={2} paddingBottom={1}>
+          <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
+            <For each={matches().slice(0, 6)}>
+              {(item, index) => (
+                <box
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={selected() === index() ? palette.selectedBg : palette.panel}
+                >
+                  <text fg={selected() === index() ? palette.selectedFg : palette.text}>{item.command}</text>
+                  <text fg={palette.muted}>{`  ${item.description}`}</text>
+                </box>
+              )}
+            </For>
+          </box>
+        </box>
+      </Show>
 
-      <box>
-        <text fg={palette.border}>{''.padEnd(Math.max(1, dims().width), '-')}</text>
-      </box>
-
-      <box flexGrow={1}>
-        <box width={Math.max(28, Math.floor(dims().width * 0.3))} backgroundColor={palette.panel} flexDirection="column">
+      <box backgroundColor={palette.bg} paddingLeft={2} paddingRight={2} paddingBottom={1}>
+        <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
           <box paddingLeft={1} paddingRight={1}>
-            <text fg={palette.secondary} attributes={TextAttributes.BOLD}>SESSIONS</text>
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>{'agent-bridge> '}</text>
           </box>
-          <For each={sessions().slice(0, Math.max(3, bodyRows() - 8))}>
-            {(item) => (
-              <box paddingLeft={1} paddingRight={1}>
-                <text fg={palette.text}>* {item}</text>
-              </box>
-            )}
-          </For>
-          <box paddingLeft={1} paddingTop={1}>
-            <text fg={palette.secondary} attributes={TextAttributes.BOLD}>COMMANDS</text>
-          </box>
-          <box paddingLeft={1}><text fg={palette.text}>/session_new create session</text></box>
-          <box paddingLeft={1}><text fg={palette.text}>/projects list projects</text></box>
-          <box paddingLeft={1}><text fg={palette.text}>/help show help</text></box>
-          <box paddingLeft={1}><text fg={palette.text}>/exit quit</text></box>
-        </box>
-
-        <box width={1} backgroundColor={palette.bg}>
-          <text fg={palette.border}>|</text>
-        </box>
-
-        <box flexGrow={1} backgroundColor={palette.element} flexDirection="column">
           <box paddingLeft={1} paddingRight={1}>
-            <text fg={palette.secondary} attributes={TextAttributes.BOLD}>ACTIVITY</text>
+            <textarea
+              ref={(input: TextareaRenderable) => {
+                textarea = input;
+              }}
+              minHeight={1}
+              maxHeight={4}
+              onSubmit={submit}
+              keyBindings={[{ name: 'return', action: 'submit' }]}
+              placeholder="Type a command"
+              textColor={palette.text}
+              focusedTextColor={palette.text}
+              cursorColor={palette.primary}
+              onContentChange={() => {
+                const next = textarea.plainText;
+                setValue(next);
+                setSelected(0);
+              }}
+              onKeyDown={(event) => {
+                if (matches().length === 0) return;
+                if (event.name === 'up') {
+                  event.preventDefault();
+                  clampSelection(-1);
+                  return;
+                }
+                if (event.name === 'down') {
+                  event.preventDefault();
+                  clampSelection(1);
+                  return;
+                }
+                if (event.name === 'tab') {
+                  event.preventDefault();
+                  applySelection();
+                  return;
+                }
+                if (event.name === 'return' && query() !== null) {
+                  event.preventDefault();
+                  applySelection();
+                }
+              }}
+            />
           </box>
-          <For each={visibleLogs()}>
-            {(line) => (
-              <box paddingLeft={1} paddingRight={1}>
-                <text fg={line.startsWith('✅') ? palette.success : line.startsWith('⚠️') ? palette.warning : palette.text}>{line}</text>
-              </box>
-            )}
-          </For>
         </box>
-      </box>
-
-      <box>
-        <text fg={palette.border}>{''.padEnd(Math.max(1, dims().width), '-')}</text>
-      </box>
-
-      <box backgroundColor={palette.bg} paddingLeft={1} paddingRight={1}>
-        <text fg={palette.primary} attributes={TextAttributes.BOLD}>{'agent-bridge> '}</text>
-      </box>
-
-      <box backgroundColor={palette.bg} paddingLeft={1} paddingRight={1}>
-        <textarea
-          ref={(value: TextareaRenderable) => {
-            textarea = value;
-          }}
-          height={2}
-          onSubmit={submit}
-          keyBindings={[{ name: 'return', action: 'submit' }]}
-          placeholder="Type a command"
-          textColor={palette.text}
-          focusedTextColor={palette.text}
-          cursorColor={palette.primary}
-        />
       </box>
     </box>
   );
