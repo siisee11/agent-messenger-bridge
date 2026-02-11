@@ -4,6 +4,8 @@ English version: [README.md](README.md)
 
 AI 에이전트 CLI를 Discord에 연결하여 원격 모니터링 및 협업을 가능하게 합니다.
 
+> 이 프로젝트는 [DoBuDevel/discord-agent-bridge](https://github.com/DoBuDevel/discord-agent-bridge)에서 파생되었습니다. 원 저작자 표기를 유지하며 업스트림 작업을 기반으로 확장합니다.
+
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
