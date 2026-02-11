@@ -381,11 +381,11 @@ describe('TmuxManager', () => {
 
       tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
-      expect(executor.calls.some(call => call.command.includes('tmux split-window') && call.command.includes(' -h ') && call.command.includes(' -l 54 '))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes('tmux split-window') && call.command.includes(' -h ') && call.command.includes(' -l 60 '))).toBe(true);
       expect(executor.calls.some(call => call.command.includes("tmux select-pane -t 'agent-session:codex.1' -T 'discode-tui'"))).toBe(true);
       expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' window-size latest"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 54"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes('tmux run-shell -b') && call.command.includes('sleep 0.35') && call.command.includes('resize-pane') && call.command.includes(' -x 54'))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 60"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes('tmux run-shell -b') && call.command.includes('sleep 0.35') && call.command.includes('resize-pane') && call.command.includes(' -x 60'))).toBe(true);
       executor.exec = originalExec;
     });
 
@@ -424,7 +424,7 @@ describe('TmuxManager', () => {
       tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
       expect(executor.calls.some(call => call.command.includes("tmux kill-pane -t 'agent-session:codex.2'"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 54"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 60"))).toBe(true);
       expect(executor.calls.some(call => call.command.includes('tmux split-window'))).toBe(false);
       executor.exec = originalExec;
     });
@@ -446,8 +446,8 @@ describe('TmuxManager', () => {
 
       expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' window-size latest"))).toBe(true);
       expect(executor.calls.some(call => call.command.includes("tmux select-layout -t 'agent-session:codex' main-vertical"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' main-pane-width 65"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 54"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' main-pane-width 60"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 59"))).toBe(true);
       executor.exec = originalExec;
     });
 
