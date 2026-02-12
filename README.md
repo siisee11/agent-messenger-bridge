@@ -57,6 +57,7 @@ Discode runs your AI agent in tmux and simply relays output to Discord - no wrap
 
 - **Bun**: Version 1.3 or higher
 - **tmux**: Version 3.0 or higher
+  - Basic tmux proficiency (session/window/pane navigation, attach/detach) is recommended
 - **Discord Bot**: Create a bot following the [Discord Bot Setup Guide](docs/DISCORD_SETUP.md)
   - Required permissions: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
   - Required intents: Guilds, GuildMessages, MessageContent, GuildMessageReactions
