@@ -31,6 +31,11 @@ body {
   margin: 0 auto;
 }
 
+.main-shell {
+  width: 100%;
+  margin: 0;
+}
+
 .topbar {
   height: 6.4rem;
   border-bottom: 1px solid var(--line);
@@ -102,8 +107,8 @@ body {
 h1 {
   margin: 1.25rem 0 1rem;
   max-width: 20ch;
-  font-size: clamp(2.2rem, 5vw, 4.2rem);
-  line-height: 1.06;
+  font-size: clamp(1.9rem, 4vw, 3.1rem);
+  line-height: 1.12;
   letter-spacing: -0.02em;
 }
 
@@ -131,15 +136,17 @@ h1 {
   width: 100%;
   border-radius: 0;
   display: block;
+  margin-bottom: 3.25rem;
 }
 
 .about-copy {
-  margin-top: 1rem;
+  margin-top: 0;
 }
 
 .about-copy h2 {
   margin: 0;
-  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  font-size: clamp(1.22rem, 2vw, 1.55rem);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -222,6 +229,10 @@ pre {
 
   .demo-section {
     margin-top: 3rem;
+  }
+
+  .demo-image {
+    margin-bottom: 2rem;
   }
 
   .shell {
