@@ -34,6 +34,7 @@ body {
 .main-shell {
   width: 100%;
   margin: 0;
+  padding-bottom: 8rem;
 }
 
 .topbar {
@@ -129,7 +130,7 @@ h1 {
 }
 
 .demo-section {
-  margin: 4.5rem 0 4rem;
+  margin: 4.5rem 0 0;
 }
 
 .demo-image {
