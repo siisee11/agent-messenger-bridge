@@ -15,21 +15,14 @@ Complete step-by-step guide to setting up your Discord bot for the Discode.
 3. Enter a name for your bot (e.g., "Discode")
 4. Accept the Terms of Service and click **"Create"**
 
-### Step 1.2: Create the Bot User
-
-1. In your application page, click on the **"Bot"** tab in the left sidebar
-2. Click **"Add Bot"** button
-3. Confirm by clicking **"Yes, do it!"**
-4. You should see "A wild bot has appeared!" message
-
-### Step 1.3: Copy the Bot Token
+### Step 1.2: Copy the Bot Token
 
 1. In the Bot page, find the **"TOKEN"** section
 2. Click **"Reset Token"** (first time) or **"Copy"** (if token already exists)
 3. **IMPORTANT**: Save this token securely - you'll need it for onboarding
 4. **WARNING**: Never share this token publicly or commit it to git
 
-### Step 1.4: Enable Privileged Gateway Intents
+### Step 1.3: Enable Privileged Gateway Intents
 
 **CRITICAL**: The bot requires specific intents to read message content.
 
@@ -43,42 +36,21 @@ Complete step-by-step guide to setting up your Discord bot for the Discode.
 
 ---
 
-## 2. Getting Your Server ID
+## 2. Inviting the Bot to Your Server
 
-### Step 2.1: Enable Developer Mode
-
-1. Open Discord and click the **gear icon** (User Settings) at the bottom left
-2. Go to **"Advanced"** in the left sidebar (under "App Settings")
-3. Enable **"Developer Mode"** toggle
-4. Close settings
-
-### Step 2.2: Copy Server ID
-
-1. Right-click on your **server name** (or server icon) in the server list
-2. Click **"Copy Server ID"** at the bottom of the menu
-3. Save this ID - you may need it for manual configuration
-
-**Note:**
-- The `discode onboard` command will auto-detect your server ID if you run it while Discord is active
-- Manual configuration: `discode config --server YOUR_SERVER_ID`
-
----
-
-## 3. Inviting the Bot to Your Server
-
-### Step 3.1: Generate Invite URL
+### Step 2.1: Generate Invite URL
 
 1. Go back to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Select your application
 3. Click on **"OAuth2"** in the left sidebar
 4. Click on **"URL Generator"**
 
-### Step 3.2: Select Scopes
+### Step 2.2: Select Scopes
 
 In the **"SCOPES"** section, check:
 - ✅ **bot**
 
-### Step 3.3: Select Bot Permissions
+### Step 2.3: Select Bot Permissions
 
 In the **"BOT PERMISSIONS"** section that appears below, check:
 
@@ -93,7 +65,7 @@ In the **"BOT PERMISSIONS"** section that appears below, check:
 - ✅ **View Channels** - Required to see and access channels
 - ✅ **Manage Channels** - Required for creating agent-specific channels
 
-### Step 3.4: Invite the Bot
+### Step 2.4: Invite the Bot
 
 1. Copy the **generated URL** at the bottom of the page
 2. Open the URL in your web browser
@@ -102,133 +74,6 @@ In the **"BOT PERMISSIONS"** section that appears below, check:
 5. Review the permissions and click **"Authorize"**
 6. Complete the CAPTCHA verification
 7. You should see "Success! [Bot Name] has been added to [Server Name]"
-
----
-
-## 4. Required Bot Permissions
-
-### Minimum Required Permissions
-
-| Permission | Required? | Purpose |
-|------------|-----------|---------|
-| View Channels | ✅ Yes | Bot must see channels to operate |
-| Send Messages | ✅ Yes | Send agent output to Discord |
-| Read Message History | ✅ Yes | Track conversation context and collect reactions |
-| Embed Links | ✅ Yes | Format rich embeds for interactive questions |
-| Manage Channels | ✅ Yes | Auto-create/delete agent channels on `init`/`new`/`stop` |
-| Add Reactions | ✅ Yes | Interactive tool approval requests |
-
-### Permission Issues
-
-If the bot cannot send messages, check:
-1. Server-level permissions are granted
-2. Channel-specific permissions override (check channel settings)
-3. Bot role is not placed below other restrictive roles
-
----
-
-## 5. Verifying Setup
-
-### Step 5.1: Run Onboarding Command
-
-```bash
-discode onboard
-```
-
-When prompted, paste the token you copied in Step 1.3.
-
-### Step 5.2: Expected Output
-
-**Successful Onboarding:**
-```
-✓ Discord bot token configured
-✓ Connected to Discord
-✓ Bot is online: Discode#1234
-✓ Found server: My Awesome Server (ID: 123456789...)
-✓ Configuration saved to ~/.discode/config.json
-
-Setup complete! Your bot is ready to use.
-
-Next steps:
-1. Run: discode new
-2. The bot will create a channel for your project and selected AI CLI
-3. Agent output will stream to that channel
-```
-
-### Step 5.3: Verify Bot is Online
-
-1. Open Discord
-2. Check your server's member list (right sidebar)
-3. Look for your bot name with a "BOT" tag
-4. The bot should show as **online** (green status)
-
-### Step 5.4: Test with a Command
-
-```bash
-discode new
-```
-
-Then in your terminal, type a message and press Enter. You should see:
-- A new channel created in Discord (if auto-channel is enabled)
-- Your message appear in that channel
-- Bot responding with agent output
-
----
-
-## Troubleshooting
-
-### Bot shows as offline
-
-- Check the token is correct
-- Verify the bot is invited to your server
-- Check network/firewall settings
-
-### Bot cannot send messages
-
-- Verify "Send Messages" permission is granted
-- Check channel-specific permission overrides
-- Ensure bot role is above other roles that restrict permissions
-
-### "Missing Access" error
-
-- The bot was not properly invited - regenerate the invite URL and invite again
-- Check "View Channels" permission is granted
-
-### "Invalid Token" error
-
-- Token may have been regenerated - get a fresh token from Developer Portal
-- Ensure no extra spaces when copying the token
-- Run `discode onboard --token NEW_BOT_TOKEN` with the new token
-
-### Cannot read messages or detect commands
-
-- **CRITICAL**: Enable "MESSAGE CONTENT INTENT" in Bot settings (Step 1.4)
-- Without this intent, the bot cannot read message content
-
----
-
-## Security Best Practices
-
-1. **Never commit your bot token to git**
-   - Use environment variables or config files with proper `.gitignore`
-
-2. **Regenerate token if exposed**
-   - If you accidentally share your token, regenerate it immediately in Developer Portal
-
-3. **Limit bot permissions**
-   - Only grant permissions the bot actually needs
-
-4. **Use separate bots for testing and production**
-   - Create different bot applications for development and live servers
-
----
-
-## Additional Resources
-
-- [Discord Developer Portal](https://discord.com/developers/applications)
-- [Discord.js Guide](https://discordjs.guide/)
-- [Discord API Documentation](https://discord.com/developers/docs/intro)
-- [Discode README](../README.md)
 
 ---
 
