@@ -1,6 +1,8 @@
 # Discode
 
-![Discode](./discode.png)
+<p align="center">
+  <img src="./discode.png" alt="Discode" width="220" />
+</p>
 
 [English](README.md) | [한국어](docs/README.ko.md)
 
