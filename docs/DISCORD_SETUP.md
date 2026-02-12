@@ -129,7 +129,7 @@ If the bot cannot send messages, check:
 
 ## 5. Verifying Setup
 
-### Step 5.1: Run Setup Command
+### Step 5.1: Run Onboarding Command
 
 ```bash
 discode onboard
@@ -139,7 +139,7 @@ When prompted, paste the token you copied in Step 1.3.
 
 ### Step 5.2: Expected Output
 
-**Successful Setup:**
+**Successful Onboarding:**
 ```
 ✓ Discord bot token configured
 ✓ Connected to Discord
@@ -151,8 +151,8 @@ Setup complete! Your bot is ready to use.
 
 Next steps:
 1. Run: discode new
-2. The bot will create a channel named 'agent-claude-XXXXX'
-3. All Claude CLI output will stream to that channel
+2. The bot will create a channel for your project and selected AI CLI
+3. Agent output will stream to that channel
 ```
 
 ### Step 5.3: Verify Bot is Online

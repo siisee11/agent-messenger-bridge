@@ -129,7 +129,7 @@ Discode를 위한 Discord 봇 설정 완전 가이드입니다.
 
 ## 5. 설정 확인
 
-### Step 5.1: 설정 명령 실행
+### Step 5.1: 온보딩 명령 실행
 
 ```bash
 discode onboard
@@ -139,7 +139,7 @@ discode onboard
 
 ### Step 5.2: 예상 출력
 
-**성공적인 설정:**
+**성공적인 온보딩:**
 ```
 ✓ Discord 봇 토큰이 설정되었습니다
 ✓ Discord에 연결되었습니다
@@ -151,8 +151,8 @@ discode onboard
 
 다음 단계:
 1. 실행: discode new
-2. 봇이 'agent-claude-XXXXX' 채널을 생성합니다
-3. 모든 Claude CLI 출력이 해당 채널로 스트리밍됩니다
+2. 봇이 프로젝트와 선택한 AI CLI에 맞는 채널을 생성합니다
+3. 에이전트 출력이 해당 채널로 스트리밍됩니다
 ```
 
 ### Step 5.3: 봇이 온라인인지 확인
