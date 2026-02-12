@@ -382,7 +382,7 @@ export class AgentBridge {
       AGENT_DISCORD_PORT: String(port),
       ...(
         adapter.config.name === 'opencode' && this.bridgeConfig.opencode?.permissionMode === 'allow'
-          ? { OPENCODE_PERMISSION: '"allow"' }
+          ? { OPENCODE_PERMISSION: '{"*":"allow"}' }
           : {}
       ),
     });

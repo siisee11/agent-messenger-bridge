@@ -471,7 +471,7 @@ describe('AgentBridge', () => {
       expect(mockTmux.startAgentInWindow).toHaveBeenCalledWith(
         'agent-test',
         'test-project-opencode',
-        expect.stringContaining(`export OPENCODE_PERMISSION='\"allow\"';`)
+        expect.stringContaining(`export OPENCODE_PERMISSION='{"*":"allow"}';`)
       );
     });
 
