@@ -20,12 +20,22 @@
   };
 
   const getDocsPathParts = (pathname) => {
-    const match = pathname.match(/^(.*\/docs\/)(ko\/)?(.*)$/);
-    if (!match) return null;
+    const hasTrailingSlash = pathname.endsWith("/");
+    const segments = pathname.split("/").filter(Boolean);
+    const docsIndex = segments.indexOf("docs");
+    if (docsIndex === -1) return null;
+
+    let nextIndex = docsIndex + 1;
+    const isKorean = segments[nextIndex] === "ko";
+    if (isKorean) {
+      nextIndex += 1;
+    }
+
     return {
-      prefix: match[1],
-      isKorean: Boolean(match[2]),
-      tail: match[3],
+      leadingSegments: segments.slice(0, docsIndex),
+      isKorean,
+      tailSegments: segments.slice(nextIndex),
+      hasTrailingSlash,
     };
   };
 
@@ -38,12 +48,19 @@
   const getPathForLanguage = (language) => {
     const docsPath = getDocsPathParts(window.location.pathname);
     if (!docsPath) return window.location.pathname;
+
+    const nextSegments = [...docsPath.leadingSegments, "docs"];
     if (language === "ko") {
-      if (docsPath.isKorean) return window.location.pathname;
-      return `${docsPath.prefix}ko/${docsPath.tail}`;
+      nextSegments.push("ko");
     }
-    if (!docsPath.isKorean) return window.location.pathname;
-    return `${docsPath.prefix}${docsPath.tail}`;
+    nextSegments.push(...docsPath.tailSegments);
+
+    let nextPath = `/${nextSegments.join("/")}`;
+    if (docsPath.tailSegments.length === 0 && docsPath.hasTrailingSlash) {
+      nextPath += "/";
+    }
+
+    return nextPath;
   };
 
   const updateDocsLinks = (language) => {
