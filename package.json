@@ -1,6 +1,6 @@
 {
   "name": "@siisee11/discode",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Bridge AI agent outputs to Discord via Claude Code hooks and tmux",
   "type": "module",
   "main": "./dist/index.js",
