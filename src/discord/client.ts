@@ -149,7 +149,7 @@ export class DiscordClient {
     const emoji = this.getEmojiForType(message.type);
     const header = `${emoji} **${message.type}** ${message.agentName ? `(${message.agentName})` : ''}`;
 
-    return `${header}\n\`\`\`\n${message.content}\n\`\`\``;
+    return `${header}\n${message.content}`;
   }
 
   private getEmojiForType(type: AgentMessage['type']): string {

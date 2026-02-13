@@ -16,6 +16,7 @@ export function getOpencodePluginSource(): string {
   const assistantTextByMessage = new Map();
 
   const projectName = process.env.AGENT_DISCORD_PROJECT || "";
+  const agentType = process.env.AGENT_DISCORD_AGENT || "opencode";
   const port = process.env.AGENT_DISCORD_PORT || "18470";
   const endpoint = "http://127.0.0.1:" + port + "/opencode-event";
 

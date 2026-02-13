@@ -125,7 +125,7 @@ export class CapturePoller {
       await this.hooks?.onAgentComplete?.(project.projectName, agentType);
 
       if (content && content !== state.lastReportedCapture) {
-        const chunks = splitForDiscord(`\`\`\`\n${content}\n\`\`\``);
+        const chunks = splitForDiscord(content);
         for (const chunk of chunks) {
           await this.send(channelId, chunk);
         }
