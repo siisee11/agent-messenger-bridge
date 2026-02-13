@@ -72,6 +72,41 @@ export class TmuxManager {
     }
   }
 
+  getCurrentWindow(paneTarget?: string): string | null {
+    if (paneTarget) {
+      try {
+        const output = this.executor.exec(
+          `tmux display-message -p -t ${escapeShellArg(paneTarget)} "#{window_name}"`,
+        );
+        const windowName = output.trim();
+        if (windowName.length > 0) return windowName;
+      } catch {
+        // Fall through to current-client lookup.
+      }
+
+      try {
+        const output = this.executor.exec('tmux list-panes -a -F "#{pane_id}|#{window_name}"');
+        const matched = output
+          .trim()
+          .split('\n')
+          .map((line) => line.split('|'))
+          .find(([paneId]) => paneId === paneTarget);
+        const windowName = matched?.[1]?.trim() || '';
+        if (windowName.length > 0) return windowName;
+      } catch {
+        // Fall through to current-client lookup.
+      }
+    }
+
+    try {
+      const output = this.executor.exec('tmux display-message -p "#{window_name}"');
+      const windowName = output.trim();
+      return windowName.length > 0 ? windowName : null;
+    } catch {
+      return null;
+    }
+  }
+
   createSession(name: string, firstWindowName?: string): void {
     const escapedName = escapeShellArg(`${this.sessionPrefix}${name}`);
     if (firstWindowName) {

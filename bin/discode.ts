@@ -575,6 +575,7 @@ async function tuiCommand(options: TmuxCliOptions): Promise<void> {
 
   const tmux = new TmuxManager(config.tmux.sessionPrefix);
   const currentSession = tmux.getCurrentSession(process.env.TMUX_PANE);
+  const currentWindow = tmux.getCurrentWindow(process.env.TMUX_PANE);
 
   const sourceCandidates = [
     new URL('./tui.js', import.meta.url),
@@ -600,6 +601,7 @@ async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   try {
     await mod.runTui({
       currentSession: currentSession || undefined,
+      currentWindow: currentWindow || undefined,
       onCommand: handler,
       onAttachProject: async (project: string) => {
         attachCommand(project, {

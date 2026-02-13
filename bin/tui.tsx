@@ -7,6 +7,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-j
 
 type TuiInput = {
   currentSession?: string;
+  currentWindow?: string;
   onCommand: (command: string, append: (line: string) => void) => Promise<boolean | void>;
   onStopProject: (project: string) => Promise<void>;
   onAttachProject: (project: string) => Promise<void>;
@@ -99,11 +100,11 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       ...existing,
     ];
   });
-  const currentSessionItems = createMemo(() => {
-    if (!props.input.currentSession) return [];
+  const currentWindowItems = createMemo(() => {
+    if (!props.input.currentSession || !props.input.currentWindow) return [];
     return openProjects()
-      .filter((item) => item.session === props.input.currentSession)
-      .sort((a, b) => a.window.localeCompare(b.window));
+      .filter((item) => item.session === props.input.currentSession && item.window === props.input.currentWindow)
+      .sort((a, b) => a.project.localeCompare(b.project));
   });
   const sessionList = createMemo(() => {
     const groups = new Map<string, { windows: Set<string>; projects: Set<string> }>();
@@ -472,7 +473,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   return (
     <box width={dims().width} height={dims().height} backgroundColor={palette.bg} flexDirection="column">
       <box flexGrow={1} backgroundColor={palette.bg} alignItems="center" justifyContent="center" paddingLeft={2} paddingRight={2}>
-        <Show when={props.input.currentSession}>
+        <Show when={props.input.currentSession || props.input.currentWindow}>
           <box
             width={Math.max(40, Math.min(90, Math.floor(dims().width * 0.7)))}
             border
@@ -481,17 +482,25 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
             flexDirection="column"
           >
             <box paddingLeft={1} paddingRight={1}>
-              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current session</text>
+              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current window</text>
             </box>
             <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
-              <text fg={palette.text}>{`session: ${props.input.currentSession}`}</text>
-              <Show when={currentSessionItems().length > 0} fallback={<text fg={palette.muted}>No running projects in this session</text>}>
-                <For each={currentSessionItems().slice(0, 6)}>
+              <Show when={props.input.currentSession}>
+                <text fg={palette.text}>{`session: ${props.input.currentSession}`}</text>
+              </Show>
+              <Show when={props.input.currentWindow} fallback={<text fg={palette.muted}>window: unavailable</text>}>
+                <text fg={palette.text}>{`window: ${props.input.currentWindow}`}</text>
+              </Show>
+              <Show
+                when={props.input.currentWindow && currentWindowItems().length > 0}
+                fallback={<text fg={palette.muted}>{props.input.currentWindow ? 'No running projects in this window' : 'Could not resolve current window'}</text>}
+              >
+                <For each={currentWindowItems().slice(0, 6)}>
                   {(item, index) => (
                     <>
-                      <text fg={palette.text}>{`${index() === currentSessionItems().length - 1 ? '`--' : '|--'} window: ${item.window}`}</text>
-                      <text fg={palette.text}>{`${index() === currentSessionItems().length - 1 ? '    ' : '|   '}ai: ${item.ai}`}</text>
-                      <text fg={palette.text}>{`${index() === currentSessionItems().length - 1 ? '    ' : '|   '}channel: ${item.channel}`}</text>
+                      <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '`--' : '|--'} project: ${item.project}`}</text>
+                      <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '    ' : '|   '}ai: ${item.ai}`}</text>
+                      <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '    ' : '|   '}channel: ${item.channel}`}</text>
                     </>
                   )}
                 </For>
