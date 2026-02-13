@@ -1,4 +1,4 @@
-import { stripAnsi, cleanCapture, splitForDiscord } from '../../src/capture/parser.js';
+import { stripAnsi, cleanCapture, splitForDiscord, stripOuterCodeblock } from '../../src/capture/parser.js';
 
 describe('stripAnsi', () => {
   it('returns plain text unchanged', () => {
@@ -125,5 +125,124 @@ describe('splitForDiscord', () => {
     result.forEach(chunk => {
       expect(chunk.split('\n').every(line => line.length <= 100)).toBe(true);
     });
+  });
+
+  it('strips outer codeblock before splitting', () => {
+    const text = '```\nhello world\n```';
+    const result = splitForDiscord(text);
+    expect(result).toEqual(['hello world']);
+  });
+
+  it('strips outer codeblock with language tag before splitting', () => {
+    const text = '```typescript\nconst x = 1;\n```';
+    const result = splitForDiscord(text);
+    expect(result).toEqual(['const x = 1;']);
+  });
+
+  it('preserves nested codeblocks after stripping outer', () => {
+    const text = '```\nsome text\n```js\ncode\n```\nmore text\n```';
+    const result = splitForDiscord(text);
+    expect(result[0]).toContain('```js');
+  });
+
+  it('closes unclosed codeblock at chunk boundary and re-opens in next chunk', () => {
+    // Build text with explanation + a codeblock that will span chunks
+    // (pure codeblock would be stripped by stripOuterCodeblock, so add prefix text)
+    const yamlLines = Array(50).fill('  key: value  # some yaml config line').join('\n');
+    const text = 'Here is the manifest:\n\n```yaml\n' + yamlLines + '\n```';
+    const result = splitForDiscord(text, 500);
+
+    expect(result.length).toBeGreaterThan(1);
+
+    // Each chunk should have balanced codeblock fences
+    for (const chunk of result) {
+      const fences = chunk.match(/^```/gm) || [];
+      expect(fences.length % 2).toBe(0);
+    }
+  });
+
+  it('does not alter chunks that have no codeblocks', () => {
+    const text = Array(100).fill('plain text line here').join('\n');
+    const result = splitForDiscord(text, 500);
+    expect(result.length).toBeGreaterThan(1);
+    for (const chunk of result) {
+      expect(chunk).not.toContain('```');
+    }
+  });
+
+  it('handles mixed text and codeblock split across chunks', () => {
+    const code = Array(40).fill('  command: echo hello').join('\n');
+    const text = 'Here is the manifest:\n\n```yaml\n' + code + '\n```\n\nDone!';
+    const result = splitForDiscord(text, 500);
+
+    expect(result.length).toBeGreaterThan(1);
+
+    // Every chunk should have balanced fences
+    for (const chunk of result) {
+      const fences = chunk.match(/^```/gm) || [];
+      expect(fences.length % 2).toBe(0);
+    }
+  });
+});
+
+describe('stripOuterCodeblock', () => {
+  it('returns plain text unchanged', () => {
+    expect(stripOuterCodeblock('hello world')).toBe('hello world');
+  });
+
+  it('strips simple codeblock fence', () => {
+    expect(stripOuterCodeblock('```\nfoo bar\n```')).toBe('foo bar');
+  });
+
+  it('strips codeblock with language tag', () => {
+    expect(stripOuterCodeblock('```ts\nconst x = 1;\n```')).toBe('const x = 1;');
+  });
+
+  it('strips codeblock with python language tag', () => {
+    expect(stripOuterCodeblock('```python\nprint("hi")\n```')).toBe('print("hi")');
+  });
+
+  it('preserves text that is not fully wrapped', () => {
+    const text = '```\ncode\n```\nextra text';
+    expect(stripOuterCodeblock(text)).toBe(text);
+  });
+
+  it('preserves text with only opening fence', () => {
+    expect(stripOuterCodeblock('```\nno closing')).toBe('```\nno closing');
+  });
+
+  it('preserves text with only closing fence', () => {
+    expect(stripOuterCodeblock('no opening\n```')).toBe('no opening\n```');
+  });
+
+  it('handles multiline content', () => {
+    const text = '```\nline1\nline2\nline3\n```';
+    expect(stripOuterCodeblock(text)).toBe('line1\nline2\nline3');
+  });
+
+  it('preserves nested codeblocks (even count)', () => {
+    const text = '```\nouter\n```js\ninner\n```\nouter2\n```';
+    expect(stripOuterCodeblock(text)).toBe('outer\n```js\ninner\n```\nouter2');
+  });
+
+  it('does not strip when inner fences are odd (not fully wrapped)', () => {
+    const text = '```\npart1\n```\npart2';
+    expect(stripOuterCodeblock(text)).toBe(text);
+  });
+
+  it('handles empty codeblock', () => {
+    expect(stripOuterCodeblock('```\n```')).toBe('');
+  });
+
+  it('handles whitespace around the text', () => {
+    expect(stripOuterCodeblock('  ```\nfoo\n```  ')).toBe('foo');
+  });
+
+  it('returns empty string unchanged', () => {
+    expect(stripOuterCodeblock('')).toBe('');
+  });
+
+  it('handles single backtick lines (not codeblock)', () => {
+    expect(stripOuterCodeblock('`inline code`')).toBe('`inline code`');
   });
 });

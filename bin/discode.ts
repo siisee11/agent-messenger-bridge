@@ -21,6 +21,7 @@ import { createInterface } from 'readline';
 import chalk from 'chalk';
 import type { BridgeConfig } from '../src/types/index.js';
 import { installOpencodePlugin } from '../src/opencode/plugin-installer.js';
+import { installClaudePlugin } from '../src/claude/plugin-installer.js';
 
 declare const DISCODE_VERSION: string | undefined;
 
@@ -823,27 +824,59 @@ async function goCommand(
         if (!tmux.windowExists(fullSessionName, resumeWindowName)) {
           const adapter = agentRegistry.get(agentName);
           if (adapter) {
+            let claudePluginDir: string | undefined;
+            let hookEnabled = !!existingProject.eventHooks?.[agentName];
+
             if (agentName === 'opencode') {
               try {
                 const pluginPath = installOpencodePlugin(existingProject.projectPath);
+                hookEnabled = true;
                 console.log(chalk.gray(`   Reinstalled OpenCode plugin: ${pluginPath}`));
               } catch (error) {
                 console.log(chalk.yellow(`⚠️ Could not reinstall OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`));
               }
             }
 
+            if (agentName === 'claude') {
+              try {
+                claudePluginDir = installClaudePlugin(existingProject.projectPath);
+                hookEnabled = true;
+                console.log(chalk.gray(`   Reinstalled Claude Code plugin: ${claudePluginDir}`));
+              } catch (error) {
+                console.log(chalk.yellow(`⚠️ Could not reinstall Claude Code plugin: ${error instanceof Error ? error.message : String(error)}`));
+              }
+            }
+
             const permissionAllow =
               agentName === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
+            let baseCommand = adapter.getStartCommand(existingProject.projectPath, permissionAllow);
+
+            // Append --plugin-dir for Claude if plugin was installed
+            if (claudePluginDir && /\bclaude\b/.test(baseCommand) && !/--plugin-dir\b/.test(baseCommand)) {
+              baseCommand = baseCommand.replace(/\bclaude\b/, `claude --plugin-dir ${escapeShellArg(claudePluginDir)}`);
+            }
+
             const startCommand =
               buildExportPrefix({
                 AGENT_DISCORD_PROJECT: projectName,
                 AGENT_DISCORD_PORT: String(port),
                 ...(permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
-              }) +
-              adapter.getStartCommand(existingProject.projectPath, permissionAllow);
+              }) + baseCommand;
 
             tmux.startAgentInWindow(fullSessionName, resumeWindowName, startCommand);
             console.log(chalk.gray(`   Restored missing tmux window: ${resumeWindowName}`));
+
+            // Update eventHooks in state if changed
+            if (hookEnabled && !existingProject.eventHooks?.[agentName]) {
+              const updatedProject = {
+                ...existingProject,
+                eventHooks: {
+                  ...(existingProject.eventHooks || {}),
+                  [agentName]: true,
+                },
+              };
+              stateManager.setProject(updatedProject);
+            }
           }
         }
         console.log(chalk.green(`✅ Existing project resumed`));
