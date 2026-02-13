@@ -2,13 +2,40 @@
 
 ## Switching Discode Runtime (Local vs Release)
 
-`discode` normally runs the globally installed release package.
+By default, `discode` should point to your local binary during development.
 
-To make switching easy, add helper functions to `~/.zshrc`:
+Add this patch to `~/.zshrc`:
 
-- `discode-rel`: force release runtime (ignores `DISCODE_BIN_PATH`)
-- `discode-local`: run local compiled binary from this repo
-- `discode-src`: run local TypeScript source directly
+```zsh
+# --- Discode runtime switchers ---
+export DISCODE_REPO="/Users/dev/git/discode"
+export DISCODE_LOCAL_BIN="$DISCODE_REPO/dist/release/discode-darwin-arm64/bin/discode"
+
+# Force globally installed release runtime
+discode-rel() {
+  env -u DISCODE_BIN_PATH command discode "$@"
+}
+
+# Force local compiled runtime
+discode-local() {
+  DISCODE_BIN_PATH="$DISCODE_LOCAL_BIN" command discode "$@"
+}
+
+# Run TypeScript source directly
+discode-src() {
+  (cd "$DISCODE_REPO" && bun run tsx ./bin/discode.ts "$@")
+}
+
+# Default `discode` to local runtime
+alias discode='discode-local'
+```
+
+Helpers:
+
+- `discode`: local compiled binary (default alias)
+- `discode-local`: local compiled binary from this repo
+- `discode-rel`: global installed release runtime (ignores `DISCODE_BIN_PATH`)
+- `discode-src`: local TypeScript source runtime
 
 After updating `~/.zshrc`, reload shell config:
 
