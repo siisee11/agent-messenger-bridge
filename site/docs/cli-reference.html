@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discode Docs - CLI Reference</title>
+    <meta name="description" content="Discode CLI commands for global and project workflows." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../discode.png" />
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../">
+          <img src="../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../">Home</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="shell doc-main">
+        <div class="doc-layout">
+          <aside class="doc-nav" aria-label="Docs navigation">
+            <p>Docs</p>
+            <a href="./">Overview</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./cli-reference.html" aria-current="page">CLI Reference</a>
+            <a href="./discord-bot.html">Discord Bot Setup</a>
+            <a href="./release.html">Release Guide</a>
+          </aside>
+
+          <article class="doc-article">
+            <h1>CLI Reference</h1>
+            <p class="lead">
+              Commands are grouped into global commands (run anywhere) and project commands (run inside a
+              project directory).
+            </p>
+
+            <section class="doc-section" id="global-commands">
+              <h2>Global commands</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Command</th>
+                      <th>Purpose</th>
+                      <th>Example</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>discode onboard</code></td>
+                      <td>First-time setup: token, server detection, default CLI, permission mode.</td>
+                      <td><code>discode onboard --token YOUR_BOT_TOKEN</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode daemon &lt;start|stop|status&gt;</code></td>
+                      <td>Control the global daemon process.</td>
+                      <td><code>discode daemon status</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode list</code></td>
+                      <td>List all registered projects.</td>
+                      <td><code>discode list</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode agents</code></td>
+                      <td>Show detected AI CLI binaries.</td>
+                      <td><code>discode agents</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode tui</code></td>
+                      <td>Open interactive terminal UI.</td>
+                      <td><code>discode tui</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode config [options]</code></td>
+                      <td>Show or update global configuration values.</td>
+                      <td><code>discode config --show</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="doc-section" id="project-commands">
+              <h2>Project commands</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Command</th>
+                      <th>Purpose</th>
+                      <th>Example</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>discode new [agent] [options]</code></td>
+                      <td>Quick start workflow: setup, daemon start, channel creation, tmux attach.</td>
+                      <td><code>discode new claude</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode start [options]</code></td>
+                      <td>Start registered projects.</td>
+                      <td><code>discode start -p my-app --attach</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode stop [project]</code></td>
+                      <td>Stop project, clean tmux session, and remove project state.</td>
+                      <td><code>discode stop --keep-channel</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode status</code></td>
+                      <td>Show project status.</td>
+                      <td><code>discode status</code></td>
+                    </tr>
+                    <tr>
+                      <td><code>discode attach [project]</code></td>
+                      <td>Attach to tmux session of the current or named project.</td>
+                      <td><code>discode attach my-app</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="doc-section" id="examples">
+              <h2>Common flows</h2>
+              <pre class="command"><code># One-time setup
+discode onboard
+
+# Start a new project session
+cd ~/projects/my-app
+discode new
+
+# Check health
+discode daemon status
+discode status</code></pre>
+              <p class="callout">
+                Agent binaries are detected with <code>command -v &lt;binary&gt;</code>. If not detected, install
+                the CLI first, then re-run <code>discode agents</code>.
+              </p>
+            </section>
+
+            <p class="doc-footer">
+              Source: <a href="https://github.com/siisee11/discode/blob/main/README.md" target="_blank" rel="noreferrer">README.md</a>
+            </p>
+          </article>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

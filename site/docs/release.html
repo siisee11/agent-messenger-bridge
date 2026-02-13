@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discode Docs - Release Guide</title>
+    <meta name="description" content="Maintainer release process for Discode npm packages." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../discode.png" />
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../">
+          <img src="../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../">Home</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="shell doc-main">
+        <div class="doc-layout">
+          <aside class="doc-nav" aria-label="Docs navigation">
+            <p>Docs</p>
+            <a href="./">Overview</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./cli-reference.html">CLI Reference</a>
+            <a href="./discord-bot.html">Discord Bot Setup</a>
+            <a href="./release.html" aria-current="page">Release Guide</a>
+          </aside>
+
+          <article class="doc-article">
+            <h1>Release Guide</h1>
+            <p class="lead">
+              Maintainer flow for publishing <code>@siisee11/discode</code> and platform-specific binary
+              packages. Adapted from <code>docs/RELEASE_NPM.ko.md</code>.
+            </p>
+
+            <section class="doc-section" id="precheck">
+              <h2>1) Pre-check</h2>
+              <ul>
+                <li>Confirm npm account has publish access under <code>siisee11</code>.</li>
+                <li>Use npm automation token if 2FA is enabled.</li>
+                <li>Never expose or commit npm tokens.</li>
+              </ul>
+              <pre class="command"><code>npm whoami
+npm token list</code></pre>
+            </section>
+
+            <section class="doc-section" id="versioning">
+              <h2>2) Bump version</h2>
+              <p>Update both:</p>
+              <ul>
+                <li><code>package.json</code> <code>version</code></li>
+                <li><code>optionalDependencies</code> versions for all <code>@siisee11/discode-*</code> packages</li>
+              </ul>
+            </section>
+
+            <section class="doc-section" id="build">
+              <h2>3) Build and package</h2>
+              <pre class="command"><code>npm run typecheck
+npm run build
+npm run build:release
+npm run pack:release</code></pre>
+              <p>Artifacts are generated under <code>dist/release/</code>.</p>
+            </section>
+
+            <section class="doc-section" id="publish">
+              <h2>4) Publish packages</h2>
+              <p>Publish platform packages first, then publish the meta package.</p>
+              <pre class="command"><code>npm publish --access public --workspaces=false dist/release/discode-darwin-arm64
+npm publish --access public --workspaces=false dist/release/discode-darwin-x64
+npm publish --access public --workspaces=false dist/release/discode-linux-x64
+npm publish --access public --workspaces=false dist/release/discode-windows-x64
+
+npm publish --access public --workspaces=false dist/release/npm/discode</code></pre>
+              <p class="callout">
+                Publish every generated platform package for your release. The list above is shortened for
+                readability.
+              </p>
+            </section>
+
+            <section class="doc-section" id="verify">
+              <h2>5) Verify release</h2>
+              <pre class="command"><code>npm view @siisee11/discode version
+npm i -g @siisee11/discode@latest
+discode --version</code></pre>
+            </section>
+
+            <section class="doc-section" id="troubleshooting">
+              <h2>Common publish issues</h2>
+              <ul>
+                <li><code>EOTP</code>: likely non-automation token or restrictive 2FA policy.</li>
+                <li><code>You cannot publish over the previously published versions</code>: version already exists.</li>
+                <li><code>Access token expired or revoked</code>: refresh npm auth token and retry.</li>
+              </ul>
+            </section>
+
+            <p class="doc-footer">
+              Source:
+              <a href="https://github.com/siisee11/discode/blob/main/docs/RELEASE_NPM.ko.md" target="_blank" rel="noreferrer">RELEASE_NPM.ko.md</a>
+            </p>
+          </article>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

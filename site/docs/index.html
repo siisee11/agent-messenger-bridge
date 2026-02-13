@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discode Docs</title>
+    <meta
+      name="description"
+      content="Documentation for Discode: installation, onboarding, Discord bot setup, and CLI reference."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../discode.png" />
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../">
+          <img src="../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../">Home</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="shell docs-main">
+        <section class="docs-hero">
+          <p class="eyebrow">Documentation</p>
+          <h1>Run AI coding sessions locally, monitor them from Discord.</h1>
+          <p>
+            Discode runs your AI coding CLI in tmux, captures output, and relays progress into dedicated
+            Discord channels. These docs are based on the project README and the setup guides in
+            <code>docs/</code>.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="./getting-started.html">Get started -&gt;</a>
+            <a class="button secondary" href="./discord-bot.html">Discord bot setup</a>
+          </div>
+        </section>
+
+        <section class="card-grid" aria-label="Doc sections">
+          <a class="doc-card" href="./getting-started.html">
+            <h2>Getting Started</h2>
+            <p>Install Discode, run onboarding, then start your first project session.</p>
+          </a>
+          <a class="doc-card" href="./cli-reference.html">
+            <h2>CLI Reference</h2>
+            <p>Global and project commands for setup, lifecycle control, and monitoring.</p>
+          </a>
+          <a class="doc-card" href="./discord-bot.html">
+            <h2>Discord Bot Setup</h2>
+            <p>Create a bot, enable required intents, assign permissions, and invite it safely.</p>
+          </a>
+          <a class="doc-card" href="./release.html">
+            <h2>Release Guide</h2>
+            <p>Maintainer workflow for packaging and publishing platform binaries to npm.</p>
+          </a>
+        </section>
+
+        <section class="home-section">
+          <h2>Quick start</h2>
+          <p>Typical first run from a project directory:</p>
+          <pre class="command"><code>discode onboard
+cd ~/projects/my-app
+discode new</code></pre>
+        </section>
+
+        <section class="home-section">
+          <h2>Core ideas</h2>
+          <p>
+            Local-first execution, relay-only architecture, persistent tmux sessions, and one daemon process
+            managing multiple projects.
+          </p>
+          <p>
+            Need full source docs? See
+            <a href="https://github.com/siisee11/discode/blob/main/README.md" target="_blank" rel="noreferrer">README.md</a>,
+            <a href="https://github.com/siisee11/discode/blob/main/docs/DISCORD_SETUP.md" target="_blank" rel="noreferrer">DISCORD_SETUP.md</a>,
+            and
+            <a href="https://github.com/siisee11/discode/blob/main/docs/README.ko.md" target="_blank" rel="noreferrer">README.ko.md</a>.
+          </p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

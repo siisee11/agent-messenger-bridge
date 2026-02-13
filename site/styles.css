@@ -142,19 +142,78 @@ h1 {
 
 .about-copy {
   margin-top: 0;
+  font-family: "IBM Plex Mono", monospace;
 }
 
 .about-copy h2 {
   margin: 0;
-  font-size: clamp(1.22rem, 2vw, 1.55rem);
-  font-weight: 600;
+  font-size: clamp(1.6rem, 2.7vw, 2.55rem);
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
-.about-copy p {
-  margin: 0.55rem 0 0;
+.about-intro {
+  margin: 1.35rem 0 0;
+  max-width: 62ch;
   color: var(--muted);
+  font-size: clamp(1rem, 1.6vw, 1.1rem);
   line-height: 1.6;
+}
+
+.about-list {
+  margin: 2.2rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.about-list li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 1.2rem;
+  row-gap: 0.4rem;
+}
+
+.about-mark {
+  color: #8a8c93;
+}
+
+.about-list strong {
+  font-size: clamp(1rem, 1.7vw, 1.14rem);
+  font-weight: 500;
+  color: #1d1e22;
+}
+
+.about-list li > span:last-child {
+  color: #5f6167;
+  font-size: clamp(0.96rem, 1.6vw, 1.06rem);
+  line-height: 1.5;
+}
+
+.about-cta {
+  margin-top: 2.5rem;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.92rem 1.25rem;
+  border-radius: 0.5rem;
+  background: #19171c;
+  color: #f8f8fa;
+  font-size: 1.02rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.about-cta:hover {
+  background: #24222a;
+}
+
+.about-cta:focus-visible {
+  outline: 2px solid #1f1f22;
+  outline-offset: 2px;
 }
 
 .tabs {
@@ -234,6 +293,28 @@ pre {
 
   .demo-image {
     margin-bottom: 2rem;
+  }
+
+  .about-list {
+    margin-top: 1.7rem;
+    gap: 1rem;
+  }
+
+  .about-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.7rem;
+  }
+
+  .about-list strong {
+    grid-column: 2;
+  }
+
+  .about-list li > span:last-child {
+    grid-column: 2;
+  }
+
+  .about-cta {
+    margin-top: 2rem;
   }
 
   .shell {

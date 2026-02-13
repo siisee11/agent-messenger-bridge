@@ -25,6 +25,7 @@
           <span class="brand-label">Discode</span>
         </a>
         <nav class="topnav" aria-label="Primary">
+          <a href="./docs/">Docs</a>
           <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
         </nav>
       </header>
@@ -50,9 +51,45 @@
           <img src="./demo.png" alt="Discode demo" class="demo-image" />
           <div class="about-copy">
             <h2>What is Discode?</h2>
-            <p>Discode is a bridge that connects your AI CLI to your favorite messenger.</p>
-            <p>Supported AI CLIs: Claude Code, OpenCode, and Codex (polling).</p>
-            <p>Supported messenger: Discord only.</p>
+            <p class="about-intro">
+              Discode runs your AI coding CLI in tmux and relays progress to Discord in real time.
+            </p>
+            <ul class="about-list" aria-label="Discode features">
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Multi-agent</strong>
+                <span>Works with Claude Code, Codex, and OpenCode</span>
+              </li>
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Project isolation</strong>
+                <span>Each project gets a dedicated Discord channel</span>
+              </li>
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Persistent sessions</strong>
+                <span>tmux sessions survive disconnects and restarts</span>
+              </li>
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Single daemon</strong>
+                <span>One bot connection manages multiple projects</span>
+              </li>
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Relay-only</strong>
+                <span>No wrappers, no cloud dependency, no hidden execution layer</span>
+              </li>
+              <li>
+                <span class="about-mark" aria-hidden="true">[*]</span>
+                <strong>Realtime stream</strong>
+                <span>Streams tmux output to Discord at a steady interval</span>
+              </li>
+            </ul>
+            <a class="about-cta" href="./docs/">
+              Read docs
+              <span aria-hidden="true">&rarr;</span>
+            </a>
           </div>
         </section>
       </main>

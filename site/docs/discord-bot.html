@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discode Docs - Discord Bot Setup</title>
+    <meta name="description" content="Step-by-step Discord bot setup for Discode." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../discode.png" />
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../">
+          <img src="../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../">Home</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main class="shell doc-main">
+        <div class="doc-layout">
+          <aside class="doc-nav" aria-label="Docs navigation">
+            <p>Docs</p>
+            <a href="./">Overview</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./cli-reference.html">CLI Reference</a>
+            <a href="./discord-bot.html" aria-current="page">Discord Bot Setup</a>
+            <a href="./release.html">Release Guide</a>
+          </aside>
+
+          <article class="doc-article">
+            <h1>Discord Bot Setup</h1>
+            <p class="lead">
+              Follow this once to create and invite a bot for Discode. These steps are adapted from
+              <code>docs/DISCORD_SETUP.md</code>.
+            </p>
+
+            <section class="doc-section" id="create-bot">
+              <h2>1) Create the bot application</h2>
+              <ol>
+                <li>Open <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Discord Developer Portal</a>.</li>
+                <li>Create a new application and open the <strong>Bot</strong> tab.</li>
+                <li>Copy the bot token and store it securely.</li>
+                <li>Never commit or share this token publicly.</li>
+              </ol>
+            </section>
+
+            <section class="doc-section" id="intents">
+              <h2>2) Enable intents</h2>
+              <p>In <strong>Privileged Gateway Intents</strong>, enable:</p>
+              <ul>
+                <li><strong>MESSAGE CONTENT INTENT</strong> (required)</li>
+                <li><strong>SERVER MEMBERS INTENT</strong> (optional)</li>
+              </ul>
+              <p>
+                Discode also uses reaction events for approval requests via non-privileged intents.
+              </p>
+            </section>
+
+            <section class="doc-section" id="invite">
+              <h2>3) Invite the bot to your server</h2>
+              <ol>
+                <li>Go to <strong>OAuth2 -&gt; URL Generator</strong>.</li>
+                <li>Select scope: <code>bot</code>.</li>
+                <li>Select permissions listed below.</li>
+                <li>Open generated URL and authorize for your target server.</li>
+              </ol>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Permission</th>
+                      <th>Why it is needed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>View Channels</td>
+                      <td>Access and track project channels.</td>
+                    </tr>
+                    <tr>
+                      <td>Manage Channels</td>
+                      <td>Create per-project channels automatically.</td>
+                    </tr>
+                    <tr>
+                      <td>Send Messages</td>
+                      <td>Post agent output and status updates.</td>
+                    </tr>
+                    <tr>
+                      <td>Send Messages in Threads</td>
+                      <td>Support threaded conversations.</td>
+                    </tr>
+                    <tr>
+                      <td>Embed Links</td>
+                      <td>Render interactive question/approval embeds.</td>
+                    </tr>
+                    <tr>
+                      <td>Read Message History</td>
+                      <td>Context tracking and reaction processing.</td>
+                    </tr>
+                    <tr>
+                      <td>Add Reactions</td>
+                      <td>Tool approval flow from Discord reactions.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="doc-section" id="verify">
+              <h2>4) Run onboarding and verify</h2>
+              <pre class="command"><code>discode onboard
+discode config --show
+discode new</code></pre>
+              <p class="callout">
+                If onboarding cannot detect a server, confirm the bot was invited to the correct guild and
+                has the permissions above.
+              </p>
+            </section>
+
+            <section class="doc-section" id="quick-card">
+              <h2>Quick reference card</h2>
+              <pre class="command"><code>1. Create app + bot at discord.com/developers/applications
+2. Enable MESSAGE CONTENT INTENT
+3. Copy bot token
+4. OAuth2 > URL Generator: scope=bot
+5. Grant permissions and invite bot
+6. Run discode onboard
+7. Start with discode new</code></pre>
+            </section>
+
+            <p class="doc-footer">
+              Source:
+              <a href="https://github.com/siisee11/discode/blob/main/docs/DISCORD_SETUP.md" target="_blank" rel="noreferrer">DISCORD_SETUP.md</a>
+              /
+              <a href="https://github.com/siisee11/discode/blob/main/docs/DISCORD_SETUP.ko.md" target="_blank" rel="noreferrer">DISCORD_SETUP.ko.md</a>
+            </p>
+          </article>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
