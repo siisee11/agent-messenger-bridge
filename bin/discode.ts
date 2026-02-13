@@ -20,6 +20,7 @@ import { execSync } from 'child_process';
 import { createInterface } from 'readline';
 import chalk from 'chalk';
 import type { BridgeConfig } from '../src/types/index.js';
+import { installOpencodePlugin } from '../src/opencode/plugin-installer.js';
 
 declare const DISCODE_VERSION: string | undefined;
 
@@ -56,6 +57,15 @@ const CLI_VERSION = resolveCliVersion();
 
 function escapeShellArg(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+function buildExportPrefix(env: Record<string, string | undefined>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    parts.push(`export ${key}=${escapeShellArg(value)}`);
+  }
+  return parts.length > 0 ? parts.join('; ') + '; ' : '';
 }
 
 function attachToTmux(sessionName: string, windowName?: string): void {
@@ -808,6 +818,34 @@ async function goCommand(
           tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PROJECT', projectName);
         }
         tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(port));
+
+        const resumeWindowName = existingProject.tmuxWindows?.[agentName] || agentName;
+        if (!tmux.windowExists(fullSessionName, resumeWindowName)) {
+          const adapter = agentRegistry.get(agentName);
+          if (adapter) {
+            if (agentName === 'opencode') {
+              try {
+                const pluginPath = installOpencodePlugin(existingProject.projectPath);
+                console.log(chalk.gray(`   Reinstalled OpenCode plugin: ${pluginPath}`));
+              } catch (error) {
+                console.log(chalk.yellow(`⚠️ Could not reinstall OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`));
+              }
+            }
+
+            const permissionAllow =
+              agentName === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
+            const startCommand =
+              buildExportPrefix({
+                AGENT_DISCORD_PROJECT: projectName,
+                AGENT_DISCORD_PORT: String(port),
+                ...(permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
+              }) +
+              adapter.getStartCommand(existingProject.projectPath, permissionAllow);
+
+            tmux.startAgentInWindow(fullSessionName, resumeWindowName, startCommand);
+            console.log(chalk.gray(`   Restored missing tmux window: ${resumeWindowName}`));
+          }
+        }
         console.log(chalk.green(`✅ Existing project resumed`));
     }
 
