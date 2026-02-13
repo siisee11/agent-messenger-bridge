@@ -2,9 +2,23 @@
  * Tests for AgentBridge main class
  */
 
+const pluginInstallerMocks = vi.hoisted(() => ({
+  installOpencodePlugin: vi.fn().mockReturnValue('/mock/opencode/plugin.ts'),
+  installClaudePlugin: vi.fn().mockReturnValue('/mock/claude/plugin'),
+}));
+
+vi.mock('../src/opencode/plugin-installer.js', () => ({
+  installOpencodePlugin: pluginInstallerMocks.installOpencodePlugin,
+}));
+
+vi.mock('../src/claude/plugin-installer.js', () => ({
+  installClaudePlugin: pluginInstallerMocks.installClaudePlugin,
+}));
+
 import { AgentBridge } from '../src/index.js';
 import type { IStateManager } from '../src/types/interfaces.js';
 import type { BridgeConfig, ProjectState } from '../src/types/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock helpers
 function createMockConfig(): BridgeConfig {
@@ -87,6 +101,11 @@ function createMockRegistry() {
 }
 
 describe('AgentBridge', () => {
+  beforeEach(() => {
+    pluginInstallerMocks.installOpencodePlugin.mockClear();
+    pluginInstallerMocks.installClaudePlugin.mockClear();
+  });
+
   describe('sanitizeInput', () => {
     it('returns null for empty string', () => {
       const bridge = new AgentBridge({
@@ -235,6 +254,30 @@ describe('AgentBridge', () => {
 
       expect(mockDiscord.onMessage).toHaveBeenCalledOnce();
       expect(mockDiscord.onMessage).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('marks claude projects as event-hook driven after plugin install', async () => {
+      const projects: ProjectState[] = [
+        {
+          projectName: 'test-project',
+          projectPath: '/test',
+          tmuxSession: 'agent-test',
+          discordChannels: { claude: 'ch-123' },
+          agents: { claude: true },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      ];
+      mockStateManager.listProjects.mockReturnValue(projects);
+
+      await bridge.start();
+
+      expect(pluginInstallerMocks.installClaudePlugin).toHaveBeenCalledWith('/test');
+      expect(mockStateManager.setProject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventHooks: expect.objectContaining({ claude: true }),
+        })
+      );
     });
 
     it('uses reactions instead of received/completed status messages', async () => {
@@ -435,7 +478,13 @@ describe('AgentBridge', () => {
           projectName: 'test-project',
           projectPath: '/test/path',
           tmuxSession: 'agent-test',
+          eventHooks: { claude: true },
         })
+      );
+      expect(mockTmux.startAgentInWindow).toHaveBeenCalledWith(
+        'agent-test',
+        'test-project-claude',
+        expect.stringContaining(`--plugin-dir '/mock/claude/plugin'`)
       );
       expect(result).toEqual({
         channelName: 'test-project-claude',

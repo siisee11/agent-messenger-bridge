@@ -11,6 +11,7 @@ import { CapturePoller } from './capture/index.js';
 import { splitForDiscord } from './capture/parser.js';
 import { CodexSubmitter } from './codex/submitter.js';
 import { installOpencodePlugin } from './opencode/plugin-installer.js';
+import { installClaudePlugin } from './claude/plugin-installer.js';
 import { createServer } from 'http';
 import { parse } from 'url';
 import type { ProjectAgents } from './types/index.js';
@@ -92,23 +93,44 @@ export class AgentBridge {
     // Load channel mappings from saved state
     const projects = this.stateManager.listProjects().map((project) => {
       const isOpencode = !!project.agents?.opencode;
-      const alreadyHooked = !!project.eventHooks?.opencode;
-      if (!isOpencode) return project;
+      const isClaude = !!project.agents?.claude;
+      const alreadyHookedOpencode = !!project.eventHooks?.opencode;
+      const alreadyHookedClaude = !!project.eventHooks?.claude;
+      if (!isOpencode && !isClaude) return project;
 
-      try {
-        const pluginPath = installOpencodePlugin(project.projectPath);
-        console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
-      } catch (error) {
-        console.warn(`Failed to install OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`);
+      let opencodeInstalled = alreadyHookedOpencode;
+      let claudeInstalled = alreadyHookedClaude;
+
+      if (isOpencode) {
+        try {
+          const pluginPath = installOpencodePlugin(project.projectPath);
+          console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
+          opencodeInstalled = true;
+        } catch (error) {
+          console.warn(`Failed to install OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
 
-      if (alreadyHooked) return project;
+      if (isClaude) {
+        try {
+          const pluginPath = installClaudePlugin(project.projectPath);
+          console.log(`🪝 Installed Claude Code plugin: ${pluginPath}`);
+          claudeInstalled = true;
+        } catch (error) {
+          console.warn(`Failed to install Claude Code plugin: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      const shouldSetOpencodeHook = isOpencode && opencodeInstalled && !alreadyHookedOpencode;
+      const shouldSetClaudeHook = isClaude && claudeInstalled && !alreadyHookedClaude;
+      if (!shouldSetOpencodeHook && !shouldSetClaudeHook) return project;
 
       const next = {
         ...project,
         eventHooks: {
           ...(project.eventHooks || {}),
-          opencode: true,
+          ...(shouldSetOpencodeHook ? { opencode: true } : {}),
+          ...(shouldSetClaudeHook ? { claude: true } : {}),
         },
       };
       this.stateManager.setProject(next);
@@ -387,6 +409,8 @@ export class AgentBridge {
       ),
     });
     const permissionAllow = this.bridgeConfig.opencode?.permissionMode === 'allow';
+    let claudePluginDir: string | undefined;
+    let claudeHookEnabled = false;
 
     if (adapter.config.name === 'opencode') {
       try {
@@ -397,10 +421,22 @@ export class AgentBridge {
       }
     }
 
+    if (adapter.config.name === 'claude') {
+      try {
+        claudePluginDir = installClaudePlugin(projectPath);
+        claudeHookEnabled = true;
+        console.log(`🪝 Installed Claude Code plugin: ${claudePluginDir}`);
+      } catch (error) {
+        console.warn(`Failed to install Claude Code plugin: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const startCommand = this.withClaudePluginDir(adapter.getStartCommand(projectPath, permissionAllow), claudePluginDir);
+
     this.tmux.startAgentInWindow(
       tmuxSession,
       windowName,
-      `${exportPrefix}${adapter.getStartCommand(projectPath, permissionAllow)}`
+      `${exportPrefix}${startCommand}`
     );
 
     // Save state
@@ -412,7 +448,7 @@ export class AgentBridge {
         [adapter.config.name]: windowName,
       },
       eventHooks: {
-        [adapter.config.name]: adapter.config.name === 'opencode',
+        [adapter.config.name]: adapter.config.name === 'opencode' || claudeHookEnabled,
       },
       discordChannels,
       agents,
@@ -449,6 +485,13 @@ export class AgentBridge {
       parts.push(`export ${key}=${escapeShellArg(value)}`);
     }
     return parts.length > 0 ? parts.join('; ') + '; ' : '';
+  }
+
+  private withClaudePluginDir(command: string, pluginDir?: string): string {
+    if (!pluginDir || pluginDir.length === 0) return command;
+    if (!/\bclaude\b/.test(command)) return command;
+    if (/--plugin-dir\b/.test(command)) return command;
+    return command.replace(/\bclaude\b/, `claude --plugin-dir ${escapeShellArg(pluginDir)}`);
   }
 
   private pendingKey(projectName: string, agentType: string): string {

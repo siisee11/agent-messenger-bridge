@@ -17,6 +17,7 @@
     "pages:build": "vite build",
     "pages:preview": "vite preview",
     "pages:deploy": "vite build && wrangler pages deploy ./dist-site --project-name=discode-landing",
+    "setup:claude-plugin": "tsx scripts/setup-claude-plugin.ts",
     "setup:opencode-plugin": "tsx scripts/setup-opencode-plugin.ts",
     "build:release:binaries": "bun run scripts/build-binaries.ts",
     "build:release:binaries:single": "bun run scripts/build-binaries.ts --single",
