@@ -73,6 +73,23 @@
     });
   };
 
+  const updateLocalizedContent = (language) => {
+    const localizedElements = document.querySelectorAll("[data-i18n-en][data-i18n-ko]");
+    localizedElements.forEach((element) => {
+      const value = element.getAttribute(`data-i18n-${language}`);
+      if (value === null) return;
+
+      const attrName = element.getAttribute("data-i18n-attr");
+      if (attrName) {
+        element.setAttribute(attrName, value);
+      } else {
+        element.textContent = value;
+      }
+    });
+
+    document.documentElement.setAttribute("lang", language === "ko" ? "ko" : "en");
+  };
+
   const redirectForLanguage = (language) => {
     const nextPath = getPathForLanguage(language);
     if (nextPath === window.location.pathname) return;
@@ -88,6 +105,7 @@
     select.value = activeLanguage;
   });
   updateDocsLinks(activeLanguage);
+  updateLocalizedContent(activeLanguage);
   setStoredLanguage(activeLanguage);
 
   if (pathLanguage && storedLanguage && pathLanguage !== storedLanguage) {
@@ -106,6 +124,7 @@
         other.value = nextLanguage;
       });
       updateDocsLinks(nextLanguage);
+      updateLocalizedContent(nextLanguage);
       if (getPathLanguage()) {
         redirectForLanguage(nextLanguage);
       }
