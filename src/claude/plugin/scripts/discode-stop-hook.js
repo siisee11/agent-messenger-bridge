@@ -72,7 +72,10 @@ function findAssistantText(node, depth = 0) {
     if (text) return text;
   }
 
-  for (const value of Object.values(obj)) {
+  for (const [key, value] of Object.entries(obj)) {
+    if (priorityKeys.includes(key)) continue;
+    // Only recurse into objects/arrays — skip scalar fields (model, id, etc.)
+    if (typeof value !== "object" || value === null) continue;
     const text = findAssistantText(value, depth + 1);
     if (text) return text;
   }
