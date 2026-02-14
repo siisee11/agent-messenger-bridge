@@ -11,3 +11,6 @@ coverage/
 *.tgz
 
 opencode-ref/
+
+.venv
+.discode

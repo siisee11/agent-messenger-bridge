@@ -117,12 +117,19 @@ export interface DiscordAttachment {
   size: number;
 }
 
-/** Image MIME types that agents can process */
-export const SUPPORTED_IMAGE_TYPES = [
+/** File MIME types that agents can process */
+export const SUPPORTED_FILE_TYPES = [
   'image/png',
   'image/jpeg',
   'image/gif',
   'image/webp',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/json',
+  'text/plain',
 ] as const;
 
 export type AgentType = string;

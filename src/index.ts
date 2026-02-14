@@ -8,7 +8,7 @@ import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
 import { CapturePoller } from './capture/index.js';
-import { splitForDiscord, extractImagePaths } from './capture/parser.js';
+import { splitForDiscord, extractFilePaths } from './capture/parser.js';
 import { CodexSubmitter } from './codex/submitter.js';
 import { installOpencodePlugin } from './opencode/plugin-installer.js';
 import { installClaudePlugin } from './claude/plugin-installer.js';
@@ -30,8 +30,8 @@ import {
   listProjectInstances,
   normalizeProjectState,
 } from './state/instances.js';
-import { downloadImageAttachments, buildImageMarkers } from './infra/image-downloader.js';
-import { installImageInstruction } from './infra/image-instruction.js';
+import { downloadFileAttachments, buildFileMarkers } from './infra/file-downloader.js';
+import { installFileInstruction } from './infra/file-instruction.js';
 
 export interface AgentBridgeDeps {
   discord?: DiscordClient;
@@ -157,10 +157,10 @@ export class AgentBridge {
         }
       }
 
-      // Install image-handling instructions for each active agent
+      // Install file-handling instructions for each active agent
       for (const at of agentTypes) {
         try {
-          installImageInstruction(project.projectPath, at);
+          installFileInstruction(project.projectPath, at);
         } catch {
           // Non-critical: skip silently
         }
@@ -237,18 +237,18 @@ export class AgentBridge {
       const instanceKey = mappedInstance.instanceId;
       const windowName = mappedInstance.tmuxWindow || instanceKey;
 
-      // Download image attachments and append markers to the message
+      // Download file attachments and append markers to the message
       let enrichedContent = content;
       if (attachments && attachments.length > 0) {
         try {
-          const downloaded = await downloadImageAttachments(attachments, project.projectPath);
+          const downloaded = await downloadFileAttachments(attachments, project.projectPath);
           if (downloaded.length > 0) {
-            const markers = buildImageMarkers(downloaded);
+            const markers = buildFileMarkers(downloaded);
             enrichedContent = content + markers;
-            console.log(`📸 [${projectName}/${agentType}] ${downloaded.length} image(s) attached`);
+            console.log(`📎 [${projectName}/${agentType}] ${downloaded.length} file(s) attached`);
           }
         } catch (error) {
-          console.warn(`Failed to process image attachments:`, error);
+          console.warn(`Failed to process file attachments:`, error);
         }
       }
 
@@ -439,17 +439,17 @@ export class AgentBridge {
       if (text && text.trim().length > 0) {
         const trimmed = text.trim();
 
-        // Extract image file paths from the response text
-        const imagePaths = extractImagePaths(trimmed).filter((p) => existsSync(p));
+        // Extract file paths from the response text
+        const filePaths = extractFilePaths(trimmed).filter((p) => existsSync(p));
 
         const chunks = splitForDiscord(trimmed);
         for (const chunk of chunks) {
           await this.discord.sendToChannel(channelId, chunk);
         }
 
-        // Send detected images as file attachments
-        if (imagePaths.length > 0) {
-          await this.discord.sendToChannelWithFiles(channelId, '', imagePaths);
+        // Send detected files as Discord attachments
+        if (filePaths.length > 0) {
+          await this.discord.sendToChannelWithFiles(channelId, '', filePaths);
         }
       }
       return true;
@@ -566,12 +566,12 @@ export class AgentBridge {
       }
     }
 
-    // Install image-handling instructions for the agent
+    // Install file-handling instructions for the agent
     try {
-      installImageInstruction(projectPath, adapter.config.name);
-      console.log(`📸 Installed image instructions for ${adapter.config.displayName}`);
+      installFileInstruction(projectPath, adapter.config.name);
+      console.log(`📎 Installed file instructions for ${adapter.config.displayName}`);
     } catch (error) {
-      console.warn(`Failed to install image instructions: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`Failed to install file instructions: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const startCommand = this.withClaudePluginDir(adapter.getStartCommand(projectPath, permissionAllow), claudePluginDir);
