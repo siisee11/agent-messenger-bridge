@@ -6,6 +6,7 @@ const pluginInstallerMocks = vi.hoisted(() => ({
   installOpencodePlugin: vi.fn().mockReturnValue('/mock/opencode/plugin.ts'),
   installClaudePlugin: vi.fn().mockReturnValue('/mock/claude/plugin'),
   installGeminiHook: vi.fn().mockReturnValue('/mock/gemini/hook.js'),
+  installCodexHook: vi.fn().mockReturnValue('/mock/codex/hook.js'),
 }));
 
 vi.mock('../src/opencode/plugin-installer.js', () => ({
@@ -18,6 +19,10 @@ vi.mock('../src/claude/plugin-installer.js', () => ({
 
 vi.mock('../src/gemini/hook-installer.js', () => ({
   installGeminiHook: pluginInstallerMocks.installGeminiHook,
+}));
+
+vi.mock('../src/codex/plugin-installer.js', () => ({
+  installCodexHook: pluginInstallerMocks.installCodexHook,
 }));
 
 import { AgentBridge } from '../src/index.js';
@@ -110,6 +115,7 @@ describe('AgentBridge', () => {
     pluginInstallerMocks.installOpencodePlugin.mockClear();
     pluginInstallerMocks.installClaudePlugin.mockClear();
     pluginInstallerMocks.installGeminiHook.mockClear();
+    pluginInstallerMocks.installCodexHook.mockClear();
   });
 
   describe('sanitizeInput', () => {

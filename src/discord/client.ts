@@ -12,8 +12,9 @@ import {
   ActionRowBuilder,
   ComponentType,
   EmbedBuilder,
+  AttachmentBuilder,
 } from 'discord.js';
-import type { AgentMessage } from '../types/index.js';
+import type { AgentMessage, DiscordAttachment } from '../types/index.js';
 import { agentRegistry as defaultAgentRegistry, type AgentConfig, type AgentRegistry } from '../agents/index.js';
 
 type MessageCallback = (
@@ -23,6 +24,7 @@ type MessageCallback = (
   channelId: string,
   messageId?: string,
   instanceId?: string,
+  attachments?: DiscordAttachment[]
 ) => void | Promise<void>;
 
 interface ChannelInfo {
@@ -74,6 +76,14 @@ export class DiscordClient {
       const channelInfo = this.channelMapping.get(message.channelId);
       if (channelInfo && this.messageCallback) {
         try {
+          // Extract attachments from the Discord message
+          const attachments: DiscordAttachment[] = message.attachments.map((a) => ({
+            url: a.url,
+            filename: a.name ?? 'unknown',
+            contentType: a.contentType,
+            size: a.size,
+          }));
+
           await this.messageCallback(
             channelInfo.agentType,
             message.content,
@@ -81,6 +91,7 @@ export class DiscordClient {
             message.channelId,
             message.id,
             channelInfo.instanceId,
+            attachments.length > 0 ? attachments : undefined
           );
         } catch (error) {
           console.error(
@@ -267,15 +278,33 @@ export class DiscordClient {
 
     const result: { [agentName: string]: string } = {};
 
+    // Fetch all channels in the guild so we can check for existing ones
+    const allChannels = await guild.channels.fetch();
+
     for (const config of agentConfigs) {
       // Use custom channel name if provided, otherwise use default format
       const channelName = customChannelName || `${projectName}-${config.channelSuffix}`;
 
-      const channel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        topic: `${config.displayName} agent for ${projectName}`,
-      });
+      // Discord normalizes channel names to lowercase with hyphens replacing spaces
+      const normalized = channelName.toLowerCase().replace(/\s+/g, '-');
+
+      // Look for an existing text channel with the same name
+      const existing = allChannels.find(
+        (ch) => ch !== null && ch.type === ChannelType.GuildText && ch.name === normalized
+      );
+
+      let channel: TextChannel;
+      if (existing) {
+        channel = existing as TextChannel;
+        console.log(`  - ${config.displayName}: reusing existing channel ${channel.name} (${channel.id})`);
+      } else {
+        channel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          topic: `${config.displayName} agent for ${projectName}`,
+        });
+        console.log(`  - ${config.displayName}: created channel ${channel.name} (${channel.id})`);
+      }
 
       // Register in mapping
       this.channelMapping.set(channel.id, {
@@ -285,10 +314,9 @@ export class DiscordClient {
       });
 
       result[config.name] = channel.id;
-      console.log(`  - ${config.displayName}: ${channel.name} (${channel.id})`);
     }
 
-    console.log(`Created ${agentConfigs.length} channels for project ${projectName}`);
+    console.log(`Set up ${agentConfigs.length} channels for project ${projectName}`);
     return result;
   }
 
@@ -446,6 +474,27 @@ export class DiscordClient {
       await (channel as TextChannel).send(content);
     } catch (error) {
       console.error(`Failed to send message to channel ${channelId}:`, error);
+    }
+  }
+
+  /**
+   * Send a message with file attachments to a specific channel.
+   * If content is empty but files are present, sends files only.
+   */
+  async sendToChannelWithFiles(channelId: string, content: string, filePaths: string[]): Promise<void> {
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) {
+        console.warn(`Channel ${channelId} is not a text channel`);
+        return;
+      }
+      const files = filePaths.map((fp) => new AttachmentBuilder(fp));
+      await (channel as TextChannel).send({
+        content: content || undefined,
+        files,
+      });
+    } catch (error) {
+      console.error(`Failed to send message with files to channel ${channelId}:`, error);
     }
   }
 

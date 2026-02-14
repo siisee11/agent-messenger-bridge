@@ -24,6 +24,7 @@ import type { BridgeConfig } from '../src/types/index.js';
 import { installOpencodePlugin } from '../src/opencode/plugin-installer.js';
 import { installClaudePlugin } from '../src/claude/plugin-installer.js';
 import { installGeminiHook, removeGeminiHook } from '../src/gemini/hook-installer.js';
+import { installCodexHook } from '../src/codex/plugin-installer.js';
 import {
   buildNextInstanceId,
   getPrimaryInstanceForAgent,
@@ -1268,13 +1269,27 @@ async function newCommand(
               }
             }
 
+            if (resumeInstance.agentType === 'codex') {
+              try {
+                const hookPath = installCodexHook();
+                hookEnabled = true;
+                console.log(chalk.gray(`   Reinstalled Codex notify hook: ${hookPath}`));
+              } catch (error) {
+                console.log(chalk.yellow(`⚠️ Could not reinstall Codex notify hook: ${error instanceof Error ? error.message : String(error)}`));
+              }
+            }
+
             const permissionAllow =
               resumeInstance.agentType === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
             let baseCommand = adapter.getStartCommand(existingProject.projectPath, permissionAllow);
 
-            // Append --plugin-dir for Claude if plugin was installed
-            if (claudePluginDir && /\bclaude\b/.test(baseCommand) && !/--plugin-dir\b/.test(baseCommand)) {
-              baseCommand = baseCommand.replace(/\bclaude\b/, `claude --plugin-dir ${escapeShellArg(claudePluginDir)}`);
+            // Append --plugin-dir for Claude if plugin was installed.
+            // Match `claude` as a shell command (after && or ; or at start), not inside a path.
+            if (claudePluginDir && !(/--plugin-dir\b/.test(baseCommand))) {
+              const pluginPattern = /((?:^|&&|;)\s*)claude\b/;
+              if (pluginPattern.test(baseCommand)) {
+                baseCommand = baseCommand.replace(pluginPattern, `$1claude --plugin-dir ${escapeShellArg(claudePluginDir)}`);
+              }
             }
 
             const startCommand =

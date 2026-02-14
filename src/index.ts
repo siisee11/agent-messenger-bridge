@@ -8,11 +8,13 @@ import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
 import { CapturePoller } from './capture/index.js';
-import { splitForDiscord } from './capture/parser.js';
+import { splitForDiscord, extractImagePaths } from './capture/parser.js';
 import { CodexSubmitter } from './codex/submitter.js';
 import { installOpencodePlugin } from './opencode/plugin-installer.js';
 import { installClaudePlugin } from './claude/plugin-installer.js';
 import { installGeminiHook } from './gemini/hook-installer.js';
+import { installCodexHook } from './codex/plugin-installer.js';
+import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { parse } from 'url';
 import type { ProjectAgents } from './types/index.js';
@@ -28,6 +30,8 @@ import {
   listProjectInstances,
   normalizeProjectState,
 } from './state/instances.js';
+import { downloadImageAttachments, buildImageMarkers } from './infra/image-downloader.js';
+import { installImageInstruction } from './infra/image-instruction.js';
 
 export interface AgentBridgeDeps {
   discord?: DiscordClient;
@@ -104,13 +108,14 @@ export class AgentBridge {
     const projects = this.stateManager.listProjects().map((rawProject) => {
       const project = normalizeProjectState(rawProject);
       const agentTypes = new Set(listProjectAgentTypes(project));
-      if (!agentTypes.has('opencode') && !agentTypes.has('claude') && !agentTypes.has('gemini')) {
+      if (!agentTypes.has('opencode') && !agentTypes.has('claude') && !agentTypes.has('gemini') && !agentTypes.has('codex')) {
         return project;
       }
 
       let opencodeInstalled = false;
       let claudeInstalled = false;
       let geminiHookInstalled = false;
+      let codexHookInstalled = false;
 
       if (agentTypes.has('opencode')) {
         try {
@@ -142,6 +147,25 @@ export class AgentBridge {
         }
       }
 
+      if (agentTypes.has('codex')) {
+        try {
+          const hookPath = installCodexHook();
+          console.log(`🪝 Installed Codex notify hook: ${hookPath}`);
+          codexHookInstalled = true;
+        } catch (error) {
+          console.warn(`Failed to install Codex notify hook: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Install image-handling instructions for each active agent
+      for (const at of agentTypes) {
+        try {
+          installImageInstruction(project.projectPath, at);
+        } catch {
+          // Non-critical: skip silently
+        }
+      }
+
       const nextInstances: NonNullable<typeof project.instances> = { ...(project.instances || {}) };
       let changed = false;
 
@@ -149,7 +173,8 @@ export class AgentBridge {
         const shouldEnableHook =
           (instance.agentType === 'opencode' && opencodeInstalled) ||
           (instance.agentType === 'claude' && claudeInstalled) ||
-          (instance.agentType === 'gemini' && geminiHookInstalled);
+          (instance.agentType === 'gemini' && geminiHookInstalled) ||
+          (instance.agentType === 'codex' && codexHookInstalled);
 
         if (shouldEnableHook && !instance.eventHook) {
           nextInstances[instance.instanceId] = {
@@ -187,7 +212,7 @@ export class AgentBridge {
     }
 
     // Set up message routing (Discord → Agent via tmux)
-    this.discord.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId) => {
+    this.discord.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId, attachments) => {
       console.log(
         `📨 [${projectName}/${agentType}${mappedInstanceId ? `#${mappedInstanceId}` : ''}] ${content.substring(0, 50)}...`,
       );
@@ -212,8 +237,23 @@ export class AgentBridge {
       const instanceKey = mappedInstance.instanceId;
       const windowName = mappedInstance.tmuxWindow || instanceKey;
 
+      // Download image attachments and append markers to the message
+      let enrichedContent = content;
+      if (attachments && attachments.length > 0) {
+        try {
+          const downloaded = await downloadImageAttachments(attachments, project.projectPath);
+          if (downloaded.length > 0) {
+            const markers = buildImageMarkers(downloaded);
+            enrichedContent = content + markers;
+            console.log(`📸 [${projectName}/${agentType}] ${downloaded.length} image(s) attached`);
+          }
+        } catch (error) {
+          console.warn(`Failed to process image attachments:`, error);
+        }
+      }
+
       // Sanitize input
-      const sanitized = this.sanitizeInput(content);
+      const sanitized = this.sanitizeInput(enrichedContent);
       if (!sanitized) {
         await this.discord.sendToChannel(channelId, `⚠️ Invalid message: empty, too long (>10000 chars), or contains invalid characters`);
         return;
@@ -397,9 +437,19 @@ export class AgentBridge {
     if (eventType === 'session.idle') {
       await this.markAgentMessageCompleted(projectName, instance?.agentType || agentType, instance?.instanceId);
       if (text && text.trim().length > 0) {
-        const chunks = splitForDiscord(text.trim());
+        const trimmed = text.trim();
+
+        // Extract image file paths from the response text
+        const imagePaths = extractImagePaths(trimmed).filter((p) => existsSync(p));
+
+        const chunks = splitForDiscord(trimmed);
         for (const chunk of chunks) {
           await this.discord.sendToChannel(channelId, chunk);
+        }
+
+        // Send detected images as file attachments
+        if (imagePaths.length > 0) {
+          await this.discord.sendToChannelWithFiles(channelId, '', imagePaths);
         }
       }
       return true;
@@ -505,6 +555,25 @@ export class AgentBridge {
       }
     }
 
+    let codexHookEnabled = false;
+    if (adapter.config.name === 'codex') {
+      try {
+        const hookPath = installCodexHook();
+        codexHookEnabled = true;
+        console.log(`🪝 Installed Codex notify hook: ${hookPath}`);
+      } catch (error) {
+        console.warn(`Failed to install Codex notify hook: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Install image-handling instructions for the agent
+    try {
+      installImageInstruction(projectPath, adapter.config.name);
+      console.log(`📸 Installed image instructions for ${adapter.config.displayName}`);
+    } catch (error) {
+      console.warn(`Failed to install image instructions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     const startCommand = this.withClaudePluginDir(adapter.getStartCommand(projectPath, permissionAllow), claudePluginDir);
 
     this.tmux.startAgentInWindow(
@@ -531,7 +600,7 @@ export class AgentBridge {
         agentType: adapter.config.name,
         tmuxWindow: windowName,
         discordChannelId: channelId,
-        eventHook: adapter.config.name === 'opencode' || claudeHookEnabled || geminiHookEnabled,
+        eventHook: adapter.config.name === 'opencode' || claudeHookEnabled || geminiHookEnabled || codexHookEnabled,
       },
     };
     const projectState = normalizeProjectState({
@@ -582,9 +651,12 @@ export class AgentBridge {
 
   private withClaudePluginDir(command: string, pluginDir?: string): string {
     if (!pluginDir || pluginDir.length === 0) return command;
-    if (!/\bclaude\b/.test(command)) return command;
     if (/--plugin-dir\b/.test(command)) return command;
-    return command.replace(/\bclaude\b/, `claude --plugin-dir ${escapeShellArg(pluginDir)}`);
+    // Match `claude` only when it appears as a shell command (after && or ; or at start),
+    // not when it's part of a file path like /Users/gui/claude/...
+    const pattern = /((?:^|&&|;)\s*)claude\b/;
+    if (!pattern.test(command)) return command;
+    return command.replace(pattern, `$1claude --plugin-dir ${escapeShellArg(pluginDir)}`);
   }
 
   private pendingKey(projectName: string, instanceKey: string): string {

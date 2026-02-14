@@ -301,19 +301,22 @@ describe('TmuxManager', () => {
       tmux.startAgentInWindow('agent-session', 'agent-window', 'node agent.js');
 
       expect(executor.calls[0].method).toBe('execVoid');
-      expect(executor.calls[0].command).toContain("tmux has-session -t 'agent-session:agent-window'");
+      expect(executor.calls[0].command).toContain("tmux list-panes -t 'agent-session:agent-window'");
       expect(executor.calls.some(call => call.command.includes('tmux send-keys'))).toBe(true);
       expect(executor.calls.some(call => call.command.includes('tmux new-window'))).toBe(false);
     });
 
-    it('creates window with initial command when window is missing', () => {
+    it('creates window with shell then sends command when window is missing', () => {
       executor.throwOnce = new Error('window not found');
       tmux.startAgentInWindow('agent-session', 'agent-window', 'node agent.js');
 
-      expect(executor.calls).toHaveLength(2);
       expect(executor.calls[0].method).toBe('execVoid');
-      expect(executor.calls[1].command).toContain('tmux new-window');
-      expect(executor.calls[1].command).toContain('node agent.js');
+      const newWindowCall = executor.calls.find(c => c.command.includes('tmux new-window'));
+      expect(newWindowCall).toBeDefined();
+      // Window created without initial command (shell only)
+      expect(newWindowCall!.command).not.toContain('node agent.js');
+      // Command sent via send-keys instead
+      expect(executor.calls.some(c => c.command.includes('tmux send-keys') && c.command.includes('node agent.js'))).toBe(true);
     });
 
     it('ignores duplicate window error', () => {

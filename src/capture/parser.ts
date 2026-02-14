@@ -132,3 +132,46 @@ export function splitForDiscord(text: string, maxLen: number = 1900): string[] {
 
   return result;
 }
+
+/**
+ * Image file extensions recognised when scanning agent output.
+ */
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'];
+
+/**
+ * Regex that matches absolute file paths ending with an image extension.
+ *
+ * Handles paths that may appear:
+ * - standalone on a line
+ * - inside backticks: `/path/to/image.png`
+ * - inside markdown image syntax: ![alt](/path/to/image.png)
+ * - after "saved to", "wrote", "created", etc.
+ *
+ * The path must start with `/` (absolute) and the extension is
+ * checked case-insensitively.
+ */
+const IMAGE_PATH_REGEX = new RegExp(
+  `(?:^|[\\s\`"'(\\[])(/[^\\s\`"')\\\]]+\\.(?:${IMAGE_EXTENSIONS.map((e) => e.slice(1)).join('|')}))(?=[\\s\`"')\\].,;:!?]|$)`,
+  'gim'
+);
+
+/**
+ * Extract image file paths from text.
+ *
+ * Scans the text for absolute file paths ending with known image
+ * extensions and returns unique paths in order of first appearance.
+ */
+export function extractImagePaths(text: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const match of text.matchAll(IMAGE_PATH_REGEX)) {
+    const p = match[1];
+    if (!seen.has(p)) {
+      seen.add(p);
+      paths.push(p);
+    }
+  }
+
+  return paths;
+}

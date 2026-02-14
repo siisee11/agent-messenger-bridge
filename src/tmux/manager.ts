@@ -514,33 +514,25 @@ export class TmuxManager {
    * Start an agent in a specific window
    */
   startAgentInWindow(sessionName: string, windowName: string, agentCommand: string): void {
-    const target = `${sessionName}:${windowName}`;
-    const escapedTarget = escapeShellArg(target);
-
     // If the target window already exists, send command into it.
-    // This covers the session's first window (created via `new-session -n ...`) and avoids duplicates.
-    try {
-      this.executor.execVoid(`tmux has-session -t ${escapedTarget}`, { stdio: 'ignore' });
+    if (this.windowExists(sessionName, windowName)) {
       this.sendKeysToWindow(sessionName, windowName, agentCommand);
       return;
-    } catch {
-      // Window does not exist yet; create it below.
     }
 
-    // Create window and run command directly when possible.
-    // This avoids name/race issues with immediate send-keys on freshly created windows.
+    // Create window with a shell first (no initial command), then send the agent
+    // command as keystrokes. This ensures the window persists even if the agent
+    // command exits immediately (e.g. missing binary, auth error), so that
+    // subsequent operations (TUI pane, attach) still find the window.
     try {
-      this.createWindow(sessionName, windowName, agentCommand);
-      return;
+      this.createWindow(sessionName, windowName);
     } catch (error) {
-      // Window might already exist, which is fine
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (!errorMessage.includes('duplicate window')) {
         throw error;
       }
     }
 
-    // Existing window: send the agent command to it.
     try {
       this.sendKeysToWindow(sessionName, windowName, agentCommand);
     } catch (error) {
@@ -549,8 +541,9 @@ export class TmuxManager {
         throw error;
       }
 
-      // Window name may have been auto-renamed before send. Recreate it and run command directly.
-      this.createWindow(sessionName, windowName, agentCommand);
+      // Window name may have been auto-renamed. Recreate with shell and retry.
+      this.createWindow(sessionName, windowName);
+      this.sendKeysToWindow(sessionName, windowName, agentCommand);
     }
   }
 
