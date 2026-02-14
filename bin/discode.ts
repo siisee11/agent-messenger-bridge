@@ -24,6 +24,14 @@ import type { BridgeConfig } from '../src/types/index.js';
 import { installOpencodePlugin } from '../src/opencode/plugin-installer.js';
 import { installClaudePlugin } from '../src/claude/plugin-installer.js';
 import { installGeminiHook, removeGeminiHook } from '../src/gemini/hook-installer.js';
+import {
+  buildNextInstanceId,
+  getPrimaryInstanceForAgent,
+  getProjectInstance,
+  listProjectAgentTypes,
+  listProjectInstances,
+  normalizeProjectState,
+} from '../src/state/instances.js';
 
 declare const DISCODE_VERSION: string | undefined;
 
@@ -301,41 +309,45 @@ function toSharedWindowName(projectName: string, agentType: string): string {
   return safe.length > 0 ? safe : agentType;
 }
 
-function getEnabledAgentName(project?: ProjectState): string | undefined {
-  return getEnabledAgentNames(project)[0];
-}
-
 function getEnabledAgentNames(project?: ProjectState): string[] {
   if (!project) return [];
-  return Object.entries(project.agents)
-    .filter(([_, enabled]) => enabled)
-    .map(([agentName]) => agentName);
+  return listProjectAgentTypes(normalizeProjectState(project));
 }
 
-function resolveProjectWindowName(project: ProjectState, agentName: string, tmuxConfig: BridgeConfig['tmux']): string {
-  const mapped = project.tmuxWindows?.[agentName];
+function resolveProjectWindowName(
+  project: ProjectState,
+  agentName: string,
+  tmuxConfig: BridgeConfig['tmux'],
+  instanceId?: string,
+): string {
+  const normalized = normalizeProjectState(project);
+  const mapped =
+    (instanceId ? getProjectInstance(normalized, instanceId)?.tmuxWindow : undefined) ||
+    getPrimaryInstanceForAgent(normalized, agentName)?.tmuxWindow ||
+    project.tmuxWindows?.[agentName];
   if (mapped && mapped.length > 0) return mapped;
 
   const sharedSession = `${tmuxConfig.sessionPrefix}${tmuxConfig.sharedSessionName || 'bridge'}`;
   if (project.tmuxSession === sharedSession) {
-    return toSharedWindowName(project.projectName, agentName);
+    const token = instanceId || agentName;
+    return toSharedWindowName(project.projectName, token);
   }
-  return agentName;
+  return instanceId || agentName;
 }
 
 function pruneStaleProjects(tmux: TmuxManager, tmuxConfig: BridgeConfig['tmux']): string[] {
   const removed: string[] = [];
   for (const project of stateManager.listProjects()) {
-    const agentNames = getEnabledAgentNames(project);
-    if (agentNames.length === 0) {
+    const instances = listProjectInstances(project);
+    if (instances.length === 0) {
       stateManager.removeProject(project.projectName);
       removed.push(project.projectName);
       continue;
     }
 
     const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
-    const hasLiveWindow = sessionUp && agentNames.some((agentName) => {
-      const windowName = resolveProjectWindowName(project, agentName, tmuxConfig);
+    const hasLiveWindow = sessionUp && instances.some((instance) => {
+      const windowName = resolveProjectWindowName(project, instance.agentType, tmuxConfig, instance.instanceId);
       return tmux.windowExists(project.tmuxSession, windowName);
     });
     if (hasLiveWindow) continue;
@@ -654,8 +666,10 @@ async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         return false;
       }
       projects.forEach((project) => {
-        const agentNames = getEnabledAgentNames(project);
-        const label = agentNames.length > 0 ? agentNames.join(', ') : 'none';
+        const instances = listProjectInstances(project);
+        const label = instances.length > 0
+          ? instances.map((instance) => `${instance.agentType}#${instance.instanceId}`).join(', ')
+          : 'none';
         append(`[project] ${project.projectName} (${label})`);
       });
       return false;
@@ -801,17 +815,18 @@ async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       },
       getProjects: () =>
         stateManager.listProjects().map((project) => {
+          const instances = listProjectInstances(project);
           const agentNames = getEnabledAgentNames(project);
           const labels = agentNames.map((agentName) => agentRegistry.get(agentName)?.config.displayName || agentName);
-          const primaryAgent = agentNames[0];
-          const window = primaryAgent
-            ? resolveProjectWindowName(project, primaryAgent, effectiveConfig.tmux)
+          const primaryInstance = instances[0];
+          const window = primaryInstance
+            ? resolveProjectWindowName(project, primaryInstance.agentType, effectiveConfig.tmux, primaryInstance.instanceId)
             : '(none)';
-          const channelCount = agentNames.filter((agentName) => !!project.discordChannels[agentName]).length;
+          const channelCount = instances.filter((instance) => !!instance.discordChannelId).length;
           const channelBase = channelCount > 0 ? `${channelCount} channel(s)` : 'not connected';
           const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
-          const windowUp = sessionUp && agentNames.some((agentName) => {
-            const name = resolveProjectWindowName(project, agentName, effectiveConfig.tmux);
+          const windowUp = sessionUp && instances.some((instance) => {
+            const name = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
             return tmux.windowExists(project.tmuxSession, name);
           });
           return {
@@ -975,13 +990,15 @@ async function startCommand(options: TmuxCliOptions & { project?: string; attach
 
     console.log(chalk.white('\nProjects to bridge:'));
     for (const project of activeProjects) {
-        const agentName = Object.entries(project.agents)
-          .find(([_, enabled]) => enabled)?.[0];
-        const adapter = agentName ? agentRegistry.get(agentName) : null;
+        const instances = listProjectInstances(project);
+        const labels = instances.map((instance) => {
+          const adapter = agentRegistry.get(instance.agentType);
+          const display = adapter?.config.displayName || instance.agentType;
+          return `${display}#${instance.instanceId}`;
+        });
 
         console.log(chalk.green(`   ✓ ${project.projectName}`));
-        console.log(chalk.gray(`     Agent: ${adapter?.config.displayName || agentName || 'none'}`));
-        console.log(chalk.gray(`     Channel: #${project.projectName}-${adapter?.config.channelSuffix || agentName}`));
+        console.log(chalk.gray(`     Instances: ${labels.length > 0 ? labels.join(', ') : 'none'}`));
         console.log(chalk.gray(`     Path: ${project.projectPath}`));
     }
     console.log('');
@@ -992,8 +1009,10 @@ async function startCommand(options: TmuxCliOptions & { project?: string; attach
     if (options.attach) {
       const project = activeProjects[0];
         const sessionName = project.tmuxSession;
-        const agentType = getEnabledAgentName(project);
-        const windowName = agentType ? resolveProjectWindowName(project, agentType, effectiveConfig.tmux) : undefined;
+        const firstInstance = listProjectInstances(project)[0];
+        const windowName = firstInstance
+          ? resolveProjectWindowName(project, firstInstance.agentType, effectiveConfig.tmux, firstInstance.instanceId)
+          : undefined;
         const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
 
         // Start bridge, then attach
@@ -1012,7 +1031,7 @@ async function startCommand(options: TmuxCliOptions & { project?: string; attach
 
 async function newCommand(
   agentArg: string | undefined,
-  options: TmuxCliOptions & { name?: string; attach?: boolean }
+  options: TmuxCliOptions & { name?: string; attach?: boolean; instance?: string }
 ) {
   try {
     ensureTmuxInstalled();
@@ -1043,7 +1062,9 @@ async function newCommand(
 
       // Determine agent
     let agentName: string;
+    let activeInstanceId: string | undefined;
     let existingProject = stateManager.getProject(projectName);
+    const requestedInstanceId = options.instance?.trim();
 
     if (agentArg) {
         // Explicitly specified
@@ -1053,15 +1074,30 @@ async function newCommand(
           process.exit(1);
         }
         agentName = adapter.config.name;
-    } else if (existingProject) {
-        // Reuse existing project's agent
-        const existing = Object.entries(existingProject.agents).find(([_, enabled]) => enabled)?.[0];
-        if (!existing) {
-          console.error(chalk.red('Existing project has no agent configured'));
-          process.exit(1);
+        if (existingProject && requestedInstanceId) {
+          const requested = getProjectInstance(existingProject, requestedInstanceId);
+          if (requested && requested.agentType !== agentName) {
+            console.error(chalk.red(`Instance '${requestedInstanceId}' belongs to '${requested.agentType}', not '${agentName}'.`));
+            process.exit(1);
+          }
         }
-        agentName = existing;
-        console.log(chalk.gray(`   Reusing existing agent: ${agentName}`));
+    } else if (existingProject) {
+        const requested = requestedInstanceId ? getProjectInstance(existingProject, requestedInstanceId) : undefined;
+        if (requested) {
+          agentName = requested.agentType;
+          activeInstanceId = requested.instanceId;
+          console.log(chalk.gray(`   Reusing existing instance: ${requested.instanceId} (${requested.agentType})`));
+        } else {
+          // Reuse existing project's primary agent
+          const existing = listProjectInstances(existingProject)[0];
+          if (!existing) {
+            console.error(chalk.red('Existing project has no agent configured'));
+            process.exit(1);
+          }
+          agentName = existing.agentType;
+          activeInstanceId = existing.instanceId;
+          console.log(chalk.gray(`   Reusing existing instance: ${existing.instanceId} (${existing.agentType})`));
+        }
     } else {
         // Auto-detect installed agents
         const installed = agentRegistry.getAll().filter(a => a.isInstalled());
@@ -1102,8 +1138,6 @@ async function newCommand(
         }
       }
 
-    const isAgentAlreadyConfigured = !!existingProject?.agents?.[agentName];
-
     await ensureOpencodePermissionChoice({ shouldPrompt: agentName === 'opencode' });
 
       // Ensure global daemon is running
@@ -1122,81 +1156,40 @@ async function newCommand(
       console.log(chalk.green(`✅ Bridge daemon already running (port ${port})`));
     }
 
-    if (!existingProject) {
-        // New project: full setup via bridge
-        console.log(chalk.gray('   Setting up new project...'));
+    const existingRequestedInstance = existingProject && requestedInstanceId
+      ? getProjectInstance(existingProject, requestedInstanceId)
+      : undefined;
+    const shouldCreateNewInstance =
+      !existingProject ||
+      (!!requestedInstanceId && !existingRequestedInstance) ||
+      (!!existingProject && !!agentArg && !existingRequestedInstance);
+
+    if (shouldCreateNewInstance) {
+        const instanceIdToCreate = requestedInstanceId || buildNextInstanceId(existingProject, agentName);
+        activeInstanceId = instanceIdToCreate;
+        const modeLabel = existingProject
+          ? `Adding instance '${instanceIdToCreate}' (${agentName}) to existing project...`
+          : 'Setting up new project...';
+        console.log(chalk.gray(`   ${modeLabel}`));
+
         const bridge = new AgentBridge({ config: effectiveConfig });
         await bridge.connect();
-
-        const adapter = agentRegistry.get(agentName)!;
-        const channelDisplayName = `${adapter.config.displayName} - ${projectName}`;
         const agents = { [agentName]: true };
-        const result = await bridge.setupProject(projectName, projectPath, agents, channelDisplayName);
-
-        console.log(chalk.green(`✅ Project created`));
-        console.log(chalk.cyan(`   Channel: #${result.channelName}`));
-
+        const result = await bridge.setupProject(
+          projectName,
+          existingProject?.projectPath || projectPath,
+          agents,
+          undefined,
+          port,
+          { instanceId: instanceIdToCreate },
+        );
         await bridge.stop();
 
-        // Notify the running daemon to reload channel mappings
-      try {
-        const http = await import('http');
-        await new Promise<void>((resolve) => {
-          const req = http.request(`http://127.0.0.1:${port}/reload`, { method: 'POST' }, () => resolve());
-          req.on('error', () => resolve());
-          req.setTimeout(2000, () => {
-            req.destroy();
-            resolve();
-          });
-          req.end();
-        });
-      } catch {
-        // daemon will pick up on next restart
-      }
-    } else if (!isAgentAlreadyConfigured) {
-        // Existing project + new agent: append agent setup and merge state
-        console.log(chalk.gray(`   Adding agent '${agentName}' to existing project...`));
-        const bridge = new AgentBridge({ config: effectiveConfig });
-        await bridge.connect();
-
-        const adapter = agentRegistry.get(agentName)!;
-        const channelDisplayName = `${adapter.config.displayName} - ${projectName}`;
-        const agents = { [agentName]: true };
-        const result = await bridge.setupProject(projectName, existingProject.projectPath, agents, channelDisplayName, port);
-
-        await bridge.stop();
-
-        const setupProjectState = stateManager.getProject(projectName);
-        if (setupProjectState) {
-          const mergedProject: ProjectState = {
-            ...existingProject,
-            projectName,
-            projectPath: existingProject.projectPath,
-            tmuxSession: existingProject.tmuxSession || setupProjectState.tmuxSession,
-            tmuxWindows: {
-              ...(existingProject.tmuxWindows || {}),
-              ...(setupProjectState.tmuxWindows || {}),
-            },
-            eventHooks: {
-              ...(existingProject.eventHooks || {}),
-              ...(setupProjectState.eventHooks || {}),
-            },
-            discordChannels: {
-              ...(existingProject.discordChannels || {}),
-              ...(setupProjectState.discordChannels || {}),
-            },
-            agents: {
-              ...(existingProject.agents || {}),
-              [agentName]: true,
-            },
-            createdAt: existingProject.createdAt,
-            lastActive: new Date(),
-          };
-          stateManager.setProject(mergedProject);
-          existingProject = mergedProject;
+        if (!existingProject) {
+          console.log(chalk.green('✅ Project created'));
+        } else {
+          console.log(chalk.green('✅ Agent instance added to existing project'));
         }
-
-        console.log(chalk.green('✅ Agent added to existing project'));
         console.log(chalk.cyan(`   Channel: #${result.channelName}`));
 
       try {
@@ -1214,6 +1207,16 @@ async function newCommand(
         // daemon will pick up on next restart
       }
     } else {
+        const resumeInstance =
+          existingRequestedInstance ||
+          (activeInstanceId ? getProjectInstance(existingProject!, activeInstanceId) : undefined) ||
+          getPrimaryInstanceForAgent(existingProject!, agentName);
+        if (!resumeInstance) {
+          console.error(chalk.red(`No instance found to resume for agent '${agentName}'.`));
+          process.exit(1);
+        }
+        activeInstanceId = resumeInstance.instanceId;
+
         // Existing project: ensure tmux session exists (use stored full session name)
         const fullSessionName = existingProject.tmuxSession;
         const prefix = effectiveConfig.tmux.sessionPrefix;
@@ -1228,14 +1231,14 @@ async function newCommand(
         }
         tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(port));
 
-        const resumeWindowName = resolveProjectWindowName(existingProject, agentName, effectiveConfig.tmux);
+        const resumeWindowName = resolveProjectWindowName(existingProject, resumeInstance.agentType, effectiveConfig.tmux, resumeInstance.instanceId);
         if (!tmux.windowExists(fullSessionName, resumeWindowName)) {
-          const adapter = agentRegistry.get(agentName);
+          const adapter = agentRegistry.get(resumeInstance.agentType);
           if (adapter) {
             let claudePluginDir: string | undefined;
-            let hookEnabled = !!existingProject.eventHooks?.[agentName];
+            let hookEnabled = !!resumeInstance.eventHook;
 
-            if (agentName === 'opencode') {
+            if (resumeInstance.agentType === 'opencode') {
               try {
                 const pluginPath = installOpencodePlugin(existingProject.projectPath);
                 hookEnabled = true;
@@ -1245,7 +1248,7 @@ async function newCommand(
               }
             }
 
-            if (agentName === 'claude') {
+            if (resumeInstance.agentType === 'claude') {
               try {
                 claudePluginDir = installClaudePlugin(existingProject.projectPath);
                 hookEnabled = true;
@@ -1255,7 +1258,7 @@ async function newCommand(
               }
             }
 
-            if (agentName === 'gemini') {
+            if (resumeInstance.agentType === 'gemini') {
               try {
                 const hookPath = installGeminiHook(existingProject.projectPath);
                 hookEnabled = true;
@@ -1266,7 +1269,7 @@ async function newCommand(
             }
 
             const permissionAllow =
-              agentName === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
+              resumeInstance.agentType === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
             let baseCommand = adapter.getStartCommand(existingProject.projectPath, permissionAllow);
 
             // Append --plugin-dir for Claude if plugin was installed
@@ -1278,19 +1281,25 @@ async function newCommand(
               buildExportPrefix({
                 AGENT_DISCORD_PROJECT: projectName,
                 AGENT_DISCORD_PORT: String(port),
+                AGENT_DISCORD_AGENT: resumeInstance.agentType,
+                AGENT_DISCORD_INSTANCE: resumeInstance.instanceId,
                 ...(permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
               }) + baseCommand;
 
             tmux.startAgentInWindow(fullSessionName, resumeWindowName, startCommand);
             console.log(chalk.gray(`   Restored missing tmux window: ${resumeWindowName}`));
 
-            // Update eventHooks in state if changed
-            if (hookEnabled && !existingProject.eventHooks?.[agentName]) {
-              const updatedProject = {
-                ...existingProject,
-                eventHooks: {
-                  ...(existingProject.eventHooks || {}),
-                  [agentName]: true,
+            // Update instance hook state if changed
+            if (hookEnabled && !resumeInstance.eventHook) {
+              const normalizedProject = normalizeProjectState(existingProject);
+              const updatedProject: ProjectState = {
+                ...normalizedProject,
+                instances: {
+                  ...(normalizedProject.instances || {}),
+                  [resumeInstance.instanceId]: {
+                    ...resumeInstance,
+                    eventHook: true,
+                  },
                 },
               };
               stateManager.setProject(updatedProject);
@@ -1303,9 +1312,13 @@ async function newCommand(
       // Summary
     const projectState = stateManager.getProject(projectName);
     const sessionName = projectState?.tmuxSession || `${effectiveConfig.tmux.sessionPrefix}${projectName}`;
+    const summaryInstance = projectState && activeInstanceId ? getProjectInstance(projectState, activeInstanceId) : undefined;
+    if (summaryInstance) {
+      agentName = summaryInstance.agentType;
+    }
     const statusWindowName = projectState
-      ? resolveProjectWindowName(projectState, agentName, effectiveConfig.tmux)
-      : toSharedWindowName(projectName, agentName);
+      ? resolveProjectWindowName(projectState, agentName, effectiveConfig.tmux, activeInstanceId)
+      : toSharedWindowName(projectName, activeInstanceId || agentName);
     const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
     if (isInteractive) {
       try {
@@ -1320,6 +1333,7 @@ async function newCommand(
     console.log(chalk.gray(`   Project:  ${projectName}`));
     console.log(chalk.gray(`   Session:  ${sessionName}`));
     console.log(chalk.gray(`   Agent:    ${agentName}`));
+    console.log(chalk.gray(`   Instance: ${activeInstanceId || '(auto)'}`));
     console.log(chalk.gray(`   Port:     ${port}`));
 
       // Attach
@@ -1445,9 +1459,12 @@ function statusCommand(options: TmuxCliOptions) {
         console.log(chalk.white(`   ${project.projectName}`), status);
         console.log(chalk.gray(`     Path: ${project.projectPath}`));
 
-        const agentNames = getEnabledAgentNames(project);
-        const labels = agentNames.map((agentName) => agentRegistry.get(agentName)?.config.displayName || agentName);
-        console.log(chalk.gray(`     Agents: ${labels.length > 0 ? labels.join(', ') : 'none'}`));
+        const instances = listProjectInstances(project);
+        const labels = instances.map((instance) => {
+          const agentLabel = agentRegistry.get(instance.agentType)?.config.displayName || instance.agentType;
+          return `${agentLabel}#${instance.instanceId}`;
+        });
+        console.log(chalk.gray(`     Instances: ${labels.length > 0 ? labels.join(', ') : 'none'}`));
         console.log('');
       }
     }
@@ -1476,12 +1493,16 @@ function listCommand(options?: { prune?: boolean }) {
     const pruned: string[] = [];
     console.log(chalk.cyan('\n📂 Configured Projects:\n'));
     for (const project of projects) {
-      const agentNames = getEnabledAgentNames(project);
-      const labels = agentNames.map((agentName) => agentRegistry.get(agentName)?.config.displayName || agentName);
+      const instances = listProjectInstances(project);
+      const labels = instances.map((instance) => {
+        const agentLabel = agentRegistry.get(instance.agentType)?.config.displayName || instance.agentType;
+        return `${agentLabel}#${instance.instanceId}`;
+      });
       const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
-      const windows = agentNames.map((agentName) => ({
-        agentName,
-        windowName: resolveProjectWindowName(project, agentName, config.tmux),
+      const windows = instances.map((instance) => ({
+        instanceId: instance.instanceId,
+        agentName: instance.agentType,
+        windowName: resolveProjectWindowName(project, instance.agentType, config.tmux, instance.instanceId),
       }));
       const runningWindows = sessionUp
         ? windows.filter((window) => tmux.windowExists(project.tmuxSession, window.windowName))
@@ -1495,12 +1516,12 @@ function listCommand(options?: { prune?: boolean }) {
       }
 
       console.log(chalk.white(`  • ${project.projectName}`));
-      console.log(chalk.gray(`    Agents: ${labels.length > 0 ? labels.join(', ') : 'none'}`));
+      console.log(chalk.gray(`    Instances: ${labels.length > 0 ? labels.join(', ') : 'none'}`));
       console.log(chalk.gray(`    Path: ${project.projectPath}`));
       console.log(chalk.gray(`    Status: ${status}`));
       if (windows.length > 0) {
         for (const window of windows) {
-          console.log(chalk.gray(`    tmux(${window.agentName}): ${project.tmuxSession}:${window.windowName}`));
+          console.log(chalk.gray(`    tmux(${window.instanceId}): ${project.tmuxSession}:${window.windowName}`));
         }
       }
     }
@@ -1537,8 +1558,11 @@ function attachCommand(projectName: string | undefined, options: TmuxCliOptions)
 
     const project = stateManager.getProject(projectName);
     const sessionName = project?.tmuxSession || `${effectiveConfig.tmux.sessionPrefix}${projectName}`;
-    const agentType = getEnabledAgentName(project);
-    const windowName = project && agentType ? resolveProjectWindowName(project, agentType, effectiveConfig.tmux) : undefined;
+    const firstInstance = project ? listProjectInstances(project)[0] : undefined;
+    const windowName =
+      project && firstInstance
+        ? resolveProjectWindowName(project, firstInstance.agentType, effectiveConfig.tmux, firstInstance.instanceId)
+        : undefined;
     const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
 
     if (!tmux.sessionExistsFull(sessionName)) {
@@ -1587,12 +1611,12 @@ async function stopCommand(
         console.log(chalk.gray(`   tmux session ${sessionName} not running`));
       }
     } else {
-      const enabledAgentTypes = Object.entries(project.agents).filter(([_, enabled]) => enabled).map(([agentType]) => agentType);
-      if (enabledAgentTypes.length === 0) {
-        console.log(chalk.gray(`   No enabled agents in state; not killing tmux windows`));
+      const instances = listProjectInstances(project);
+      if (instances.length === 0) {
+        console.log(chalk.gray(`   No active instances in state; not killing tmux windows`));
       } else {
-        for (const agentType of enabledAgentTypes) {
-          const windowName = resolveProjectWindowName(project, agentType, effectiveConfig.tmux);
+        for (const instance of instances) {
+          const windowName = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
           const target = `${sessionName}:${windowName}`;
           const forcedKillCount = await terminateTmuxPaneProcesses(target);
           if (forcedKillCount > 0) {
@@ -1610,7 +1634,9 @@ async function stopCommand(
 
     // 2. Delete Discord channel (unless --keep-channel)
     if (project && !options.keepChannel) {
-      const channelIds = Object.values(project.discordChannels).filter(Boolean) as string[];
+      const channelIds = listProjectInstances(project)
+        .map((instance) => instance.discordChannelId)
+        .filter((channelId): channelId is string => !!channelId);
       if (channelIds.length > 0) {
         try {
           validateConfig();
@@ -1858,10 +1884,12 @@ await yargs(rawArgs)
     (y: Argv) => addTmuxOptions(y)
       .positional('agent', { type: 'string', describe: 'Agent to use (claude, codex, gemini, opencode)' })
       .option('name', { alias: 'n', type: 'string', describe: 'Project name (defaults to directory name)' })
+      .option('instance', { type: 'string', describe: 'Agent instance ID (e.g. gemini-2)' })
       .option('attach', { type: 'boolean', default: true, describe: 'Attach to tmux session after setup' }),
     async (argv: any) =>
       newCommand(argv.agent, {
         name: argv.name,
+        instance: argv.instance,
         attach: argv.attach,
         tmuxSharedSessionName: argv.tmuxSharedSessionName,
       })

@@ -21,12 +21,14 @@ type MessageCallback = (
   content: string,
   projectName: string,
   channelId: string,
-  messageId?: string
+  messageId?: string,
+  instanceId?: string,
 ) => void | Promise<void>;
 
 interface ChannelInfo {
   projectName: string;
   agentType: string;
+  instanceId?: string;
 }
 
 export class DiscordClient {
@@ -72,7 +74,14 @@ export class DiscordClient {
       const channelInfo = this.channelMapping.get(message.channelId);
       if (channelInfo && this.messageCallback) {
         try {
-          await this.messageCallback(channelInfo.agentType, message.content, channelInfo.projectName, message.channelId, message.id);
+          await this.messageCallback(
+            channelInfo.agentType,
+            message.content,
+            channelInfo.projectName,
+            message.channelId,
+            message.id,
+            channelInfo.instanceId,
+          );
         } catch (error) {
           console.error(
             `Discord message handler error [${channelInfo.projectName}/${channelInfo.agentType}] channel=${message.channelId}:`,
@@ -248,7 +257,8 @@ export class DiscordClient {
     guildId: string,
     projectName: string,
     agentConfigs: AgentConfig[],
-    customChannelName?: string
+    customChannelName?: string,
+    instanceIdByAgent?: { [agentName: string]: string | undefined },
   ): Promise<{ [agentName: string]: string }> {
     const guild = await this.client.guilds.fetch(guildId);
     if (!guild) {
@@ -271,6 +281,7 @@ export class DiscordClient {
       this.channelMapping.set(channel.id, {
         projectName,
         agentType: config.name,
+        instanceId: instanceIdByAgent?.[config.name],
       });
 
       result[config.name] = channel.id;
@@ -284,13 +295,16 @@ export class DiscordClient {
   /**
    * Register channel mappings from external source (e.g., state file)
    */
-  registerChannelMappings(mappings: { channelId: string; projectName: string; agentType: string }[]): void {
+  registerChannelMappings(mappings: { channelId: string; projectName: string; agentType: string; instanceId?: string }[]): void {
     for (const m of mappings) {
       this.channelMapping.set(m.channelId, {
         projectName: m.projectName,
         agentType: m.agentType,
+        instanceId: m.instanceId,
       });
-      console.log(`Registered channel ${m.channelId} -> ${m.projectName}:${m.agentType}`);
+      console.log(
+        `Registered channel ${m.channelId} -> ${m.projectName}:${m.agentType}${m.instanceId ? `#${m.instanceId}` : ''}`,
+      );
     }
   }
 

@@ -6,27 +6,11 @@
 import { join } from 'path';
 import { homedir } from 'os';
 import type { IStorage, IStateManager } from '../types/interfaces.js';
+import type { ProjectState as SharedProjectState } from '../types/index.js';
 import { FileStorage } from '../infra/storage.js';
+import { findProjectInstanceByChannel, normalizeProjectState } from './instances.js';
 
-export interface ProjectState {
-  projectName: string;
-  projectPath: string;
-  tmuxSession: string;
-  tmuxWindows?: {
-    [agentType: string]: string | undefined;  // agentType -> window target (name or name.pane)
-  };
-  eventHooks?: {
-    [agentType: string]: boolean | undefined;  // agentType -> uses event-hook output path
-  };
-  discordChannels: {
-    [agentType: string]: string | undefined;  // agentType -> channel ID
-  };
-  agents: {
-    [agentType: string]: boolean;  // agentType -> enabled
-  };
-  createdAt: Date;
-  lastActive: Date;
-}
+export type ProjectState = SharedProjectState;
 
 export interface BridgeState {
   projects: Record<string, ProjectState>;
@@ -53,7 +37,16 @@ export class StateManager implements IStateManager {
     }
     try {
       const data = this.storage.readFile(this.stateFile, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data) as BridgeState;
+      const projects: Record<string, ProjectState> = {};
+      for (const [projectName, project] of Object.entries(parsed.projects || {})) {
+        if (!project || typeof project !== 'object') continue;
+        projects[projectName] = normalizeProjectState(project as ProjectState);
+      }
+      return {
+        ...parsed,
+        projects,
+      };
     } catch {
       return { projects: {} };
     }
@@ -75,7 +68,7 @@ export class StateManager implements IStateManager {
   }
 
   setProject(project: ProjectState): void {
-    this.state.projects[project.projectName] = project;
+    this.state.projects[project.projectName] = normalizeProjectState(project);
     this.saveState();
   }
 
@@ -105,18 +98,13 @@ export class StateManager implements IStateManager {
   }
 
   findProjectByChannel(channelId: string): ProjectState | undefined {
-    return Object.values(this.state.projects).find(
-      p => Object.values(p.discordChannels).includes(channelId)
-    );
+    return Object.values(this.state.projects).find((project) => !!findProjectInstanceByChannel(project, channelId));
   }
 
   getAgentTypeByChannel(channelId: string): string | undefined {
     for (const project of Object.values(this.state.projects)) {
-      for (const [agentType, chId] of Object.entries(project.discordChannels)) {
-        if (chId === channelId) {
-          return agentType;
-        }
-      }
+      const instance = findProjectInstanceByChannel(project, channelId);
+      if (instance) return instance.agentType;
     }
     return undefined;
   }

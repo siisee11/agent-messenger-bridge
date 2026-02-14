@@ -250,8 +250,8 @@ describe('AgentBridge', () => {
 
       expect(mockDiscord.connect).toHaveBeenCalledOnce();
       expect(mockDiscord.registerChannelMappings).toHaveBeenCalledWith([
-        { channelId: 'ch-123', projectName: 'test-project', agentType: 'claude' },
-        { channelId: 'ch-456', projectName: 'test-project', agentType: 'cursor' },
+        { channelId: 'ch-123', projectName: 'test-project', agentType: 'claude', instanceId: 'claude' },
+        { channelId: 'ch-456', projectName: 'test-project', agentType: 'cursor', instanceId: 'cursor' },
       ]);
     });
 
@@ -501,7 +501,8 @@ describe('AgentBridge', () => {
         'guild-123',
         'test-project',
         [mockRegistry._mockAdapter.config],
-        'test-project-claude'
+        'test-project-claude',
+        { claude: 'claude' },
       );
       expect(mockStateManager.setProject).toHaveBeenCalledWith(
         expect.objectContaining({

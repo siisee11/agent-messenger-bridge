@@ -47,7 +47,7 @@ describe('claude plugin installer', () => {
     const sourceDir = getPluginSourceDir();
     const source = readFileSync(join(sourceDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME), 'utf-8');
     expect(source).toContain('/opencode-event');
-    expect(source).toContain('agentType: "claude"');
+    expect(source).toContain('process.env.AGENT_DISCORD_AGENT || "claude"');
     expect(source).toContain('type: "session.idle"');
   });
 

@@ -55,13 +55,16 @@ async function main() {
     return;
   }
 
+  const agentType = process.env.AGENT_DISCORD_AGENT || 'gemini';
+  const instanceId = process.env.AGENT_DISCORD_INSTANCE || '';
   const port = process.env.AGENT_DISCORD_PORT || '18470';
   const text = typeof input.prompt_response === 'string' ? input.prompt_response.trim() : '';
 
   try {
     await postToBridge(port, {
       projectName,
-      agentType: 'gemini',
+      agentType,
+      ...(instanceId ? { instanceId } : {}),
       type: 'session.idle',
       text,
     });

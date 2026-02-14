@@ -6,6 +6,7 @@ export const AgentDiscordBridgePlugin = async () => {
 
   const projectName = process.env.AGENT_DISCORD_PROJECT || "";
   const agentType = process.env.AGENT_DISCORD_AGENT || "opencode";
+  const instanceId = process.env.AGENT_DISCORD_INSTANCE || "";
   const port = process.env.AGENT_DISCORD_PORT || "18470";
   const endpoint = "http://127.0.0.1:" + port + "/opencode-event";
 
@@ -17,7 +18,8 @@ export const AgentDiscordBridgePlugin = async () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           projectName,
-          agentType: "opencode",
+          agentType,
+          ...(instanceId ? { instanceId } : {}),
           ...payload,
         }),
       });

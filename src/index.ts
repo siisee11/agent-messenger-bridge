@@ -19,6 +19,15 @@ import type { ProjectAgents } from './types/index.js';
 import type { IStateManager } from './types/interfaces.js';
 import type { BridgeConfig } from './types/index.js';
 import { escapeShellArg } from './infra/shell-escape.js';
+import {
+  buildNextInstanceId,
+  findProjectInstanceByChannel,
+  getPrimaryInstanceForAgent,
+  getProjectInstance,
+  listProjectAgentTypes,
+  listProjectInstances,
+  normalizeProjectState,
+} from './state/instances.js';
 
 export interface AgentBridgeDeps {
   discord?: DiscordClient;
@@ -38,7 +47,7 @@ export class AgentBridge {
   private stateManager: IStateManager;
   private registry: AgentRegistry;
   private bridgeConfig: BridgeConfig;
-  private pendingMessageByAgent: Map<string, { channelId: string; messageId: string }> = new Map();
+  private pendingMessageByInstance: Map<string, { channelId: string; messageId: string }> = new Map();
 
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
@@ -48,11 +57,11 @@ export class AgentBridge {
     this.registry = deps?.registry || defaultAgentRegistry;
     this.codexSubmitter = deps?.codexSubmitter || new CodexSubmitter(this.tmux);
     this.poller = new CapturePoller(this.tmux, this.discord, 30000, this.stateManager, {
-      onAgentComplete: async (projectName, agentType) => {
-        await this.markAgentMessageCompleted(projectName, agentType);
+      onAgentComplete: async (projectName, agentType, instanceId) => {
+        await this.markAgentMessageCompleted(projectName, agentType, instanceId);
       },
-      onAgentStopped: async (projectName, agentType) => {
-        await this.markAgentMessageError(projectName, agentType);
+      onAgentStopped: async (projectName, agentType, instanceId) => {
+        await this.markAgentMessageError(projectName, agentType, instanceId);
       },
     });
   }
@@ -92,20 +101,18 @@ export class AgentBridge {
     console.log('✅ Discord connected');
 
     // Load channel mappings from saved state
-    const projects = this.stateManager.listProjects().map((project) => {
-      const isOpencode = !!project.agents?.opencode;
-      const isClaude = !!project.agents?.claude;
-      const isGemini = !!project.agents?.gemini;
-      const alreadyHookedOpencode = !!project.eventHooks?.opencode;
-      const alreadyHookedClaude = !!project.eventHooks?.claude;
-      const alreadyHookedGemini = !!project.eventHooks?.gemini;
-      if (!isOpencode && !isClaude && !isGemini) return project;
+    const projects = this.stateManager.listProjects().map((rawProject) => {
+      const project = normalizeProjectState(rawProject);
+      const agentTypes = new Set(listProjectAgentTypes(project));
+      if (!agentTypes.has('opencode') && !agentTypes.has('claude') && !agentTypes.has('gemini')) {
+        return project;
+      }
 
-      let opencodeInstalled = alreadyHookedOpencode;
-      let claudeInstalled = alreadyHookedClaude;
-      let geminiHookInstalled = alreadyHookedGemini;
+      let opencodeInstalled = false;
+      let claudeInstalled = false;
+      let geminiHookInstalled = false;
 
-      if (isOpencode) {
+      if (agentTypes.has('opencode')) {
         try {
           const pluginPath = installOpencodePlugin(project.projectPath);
           console.log(`🧩 Installed OpenCode plugin: ${pluginPath}`);
@@ -115,7 +122,7 @@ export class AgentBridge {
         }
       }
 
-      if (isClaude) {
+      if (agentTypes.has('claude')) {
         try {
           const pluginPath = installClaudePlugin(project.projectPath);
           console.log(`🪝 Installed Claude Code plugin: ${pluginPath}`);
@@ -125,7 +132,7 @@ export class AgentBridge {
         }
       }
 
-      if (isGemini) {
+      if (agentTypes.has('gemini')) {
         try {
           const hookPath = installGeminiHook(project.projectPath);
           console.log(`🪝 Installed Gemini CLI hook: ${hookPath}`);
@@ -135,28 +142,43 @@ export class AgentBridge {
         }
       }
 
-      const shouldSetOpencodeHook = isOpencode && opencodeInstalled && !alreadyHookedOpencode;
-      const shouldSetClaudeHook = isClaude && claudeInstalled && !alreadyHookedClaude;
-      const shouldSetGeminiHook = isGemini && geminiHookInstalled && !alreadyHookedGemini;
-      if (!shouldSetOpencodeHook && !shouldSetClaudeHook && !shouldSetGeminiHook) return project;
+      const nextInstances: NonNullable<typeof project.instances> = { ...(project.instances || {}) };
+      let changed = false;
 
-      const next = {
+      for (const instance of listProjectInstances(project)) {
+        const shouldEnableHook =
+          (instance.agentType === 'opencode' && opencodeInstalled) ||
+          (instance.agentType === 'claude' && claudeInstalled) ||
+          (instance.agentType === 'gemini' && geminiHookInstalled);
+
+        if (shouldEnableHook && !instance.eventHook) {
+          nextInstances[instance.instanceId] = {
+            ...instance,
+            eventHook: true,
+          };
+          changed = true;
+        }
+      }
+
+      if (!changed) return project;
+
+      const next = normalizeProjectState({
         ...project,
-        eventHooks: {
-          ...(project.eventHooks || {}),
-          ...(shouldSetOpencodeHook ? { opencode: true } : {}),
-          ...(shouldSetClaudeHook ? { claude: true } : {}),
-          ...(shouldSetGeminiHook ? { gemini: true } : {}),
-        },
-      };
+        instances: nextInstances,
+      });
       this.stateManager.setProject(next);
       return next;
     });
-    const mappings: { channelId: string; projectName: string; agentType: string }[] = [];
+    const mappings: { channelId: string; projectName: string; agentType: string; instanceId?: string }[] = [];
     for (const project of projects) {
-      for (const [agentType, channelId] of Object.entries(project.discordChannels)) {
-        if (channelId) {
-          mappings.push({ channelId, projectName: project.projectName, agentType });
+      for (const instance of listProjectInstances(project)) {
+        if (instance.discordChannelId) {
+          mappings.push({
+            channelId: instance.discordChannelId,
+            projectName: project.projectName,
+            agentType: instance.agentType,
+            instanceId: instance.instanceId,
+          });
         }
       }
     }
@@ -165,8 +187,10 @@ export class AgentBridge {
     }
 
     // Set up message routing (Discord → Agent via tmux)
-    this.discord.onMessage(async (agentType, content, projectName, channelId, messageId) => {
-      console.log(`📨 [${projectName}/${agentType}] ${content.substring(0, 50)}...`);
+    this.discord.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId) => {
+      console.log(
+        `📨 [${projectName}/${agentType}${mappedInstanceId ? `#${mappedInstanceId}` : ''}] ${content.substring(0, 50)}...`,
+      );
 
       const project = this.stateManager.getProject(projectName);
       if (!project) {
@@ -174,6 +198,19 @@ export class AgentBridge {
         await this.discord.sendToChannel(channelId, `⚠️ Project "${projectName}" not found in state`);
         return;
       }
+
+      const normalizedProject = normalizeProjectState(project);
+      const mappedInstance =
+        (mappedInstanceId ? getProjectInstance(normalizedProject, mappedInstanceId) : undefined) ||
+        findProjectInstanceByChannel(normalizedProject, channelId) ||
+        getPrimaryInstanceForAgent(normalizedProject, agentType);
+      if (!mappedInstance) {
+        await this.discord.sendToChannel(channelId, '⚠️ Agent instance mapping not found for this channel');
+        return;
+      }
+      const resolvedAgentType = mappedInstance.agentType;
+      const instanceKey = mappedInstance.instanceId;
+      const windowName = mappedInstance.tmuxWindow || instanceKey;
 
       // Sanitize input
       const sanitized = this.sanitizeInput(content);
@@ -184,30 +221,29 @@ export class AgentBridge {
 
       // Get agent adapter
       if (messageId) {
-        this.pendingMessageByAgent.set(this.pendingKey(projectName, agentType), { channelId, messageId });
+        this.pendingMessageByInstance.set(this.pendingKey(projectName, instanceKey), { channelId, messageId });
         await this.discord.addReactionToMessage(channelId, messageId, '⏳');
       }
 
       // Send to tmux
-      const windowName = project.tmuxWindows?.[agentType] || agentType;
       try {
-        if (agentType === 'codex') {
-          const ok = await this.codexSubmitter.submit(project.tmuxSession, windowName, sanitized);
+        if (resolvedAgentType === 'codex') {
+          const ok = await this.codexSubmitter.submit(normalizedProject.tmuxSession, windowName, sanitized);
           if (!ok) {
-            await this.markAgentMessageError(projectName, agentType);
+            await this.markAgentMessageError(projectName, resolvedAgentType, instanceKey);
             await this.discord.sendToChannel(
               channelId,
               `⚠️ Codex에 메시지를 제출하지 못했습니다. Codex가 busy 상태일 수 있어요.\n` +
               `tmux로 붙어서 Enter를 한 번 눌러보거나, 잠시 후 다시 보내주세요.`
             );
           }
-        } else if (agentType === 'opencode') {
-          await this.submitToOpencode(project.tmuxSession, windowName, sanitized);
+        } else if (resolvedAgentType === 'opencode') {
+          await this.submitToOpencode(normalizedProject.tmuxSession, windowName, sanitized);
         } else {
-          this.tmux.sendKeysToWindow(project.tmuxSession, windowName, sanitized, agentType);
+          this.tmux.sendKeysToWindow(normalizedProject.tmuxSession, windowName, sanitized, resolvedAgentType);
         }
       } catch (error) {
-        await this.markAgentMessageError(projectName, agentType);
+        await this.markAgentMessageError(projectName, resolvedAgentType, instanceKey);
         await this.discord.sendToChannel(
           channelId,
           `⚠️ tmux로 메시지 전달 실패: ${error instanceof Error ? error.message : String(error)}`
@@ -296,12 +332,17 @@ export class AgentBridge {
 
   private reloadChannelMappings(): void {
     this.stateManager.reload();
-    const projects = this.stateManager.listProjects();
-    const mappings: { channelId: string; projectName: string; agentType: string }[] = [];
+    const projects = this.stateManager.listProjects().map((project) => normalizeProjectState(project));
+    const mappings: { channelId: string; projectName: string; agentType: string; instanceId?: string }[] = [];
     for (const project of projects) {
-      for (const [agentType, channelId] of Object.entries(project.discordChannels)) {
-        if (channelId) {
-          mappings.push({ channelId, projectName: project.projectName, agentType });
+      for (const instance of listProjectInstances(project)) {
+        if (instance.discordChannelId) {
+          mappings.push({
+            channelId: instance.discordChannelId,
+            projectName: project.projectName,
+            agentType: instance.agentType,
+            instanceId: instance.instanceId,
+          });
         }
       }
     }
@@ -326,6 +367,7 @@ export class AgentBridge {
     const event = payload as Record<string, unknown>;
     const projectName = typeof event.projectName === 'string' ? event.projectName : undefined;
     const agentType = typeof event.agentType === 'string' ? event.agentType : 'opencode';
+    const instanceId = typeof event.instanceId === 'string' ? event.instanceId : undefined;
     const eventType = typeof event.type === 'string' ? event.type : undefined;
 
     if (!projectName) return false;
@@ -333,21 +375,27 @@ export class AgentBridge {
     const project = this.stateManager.getProject(projectName);
     if (!project) return false;
 
-    const channelId = project.discordChannels[agentType];
+    const normalizedProject = normalizeProjectState(project);
+    const instance =
+      (instanceId ? getProjectInstance(normalizedProject, instanceId) : undefined) ||
+      getPrimaryInstanceForAgent(normalizedProject, agentType);
+    const channelId = instance?.discordChannelId;
     if (!channelId) return false;
 
     const text = this.getEventText(event);
-    console.log(`🔍 [${projectName}/${agentType}] event=${eventType} text=${text ? `(${text.length} chars) ${text.substring(0, 100)}` : '(empty)'}`);
+    console.log(
+      `🔍 [${projectName}/${instance?.agentType || agentType}${instance ? `#${instance.instanceId}` : ''}] event=${eventType} text=${text ? `(${text.length} chars) ${text.substring(0, 100)}` : '(empty)'}`,
+    );
 
     if (eventType === 'session.error') {
-      await this.markAgentMessageError(projectName, agentType);
+      await this.markAgentMessageError(projectName, instance?.agentType || agentType, instance?.instanceId);
       const msg = text || 'unknown error';
       await this.discord.sendToChannel(channelId, `⚠️ OpenCode session error: ${msg}`);
       return true;
     }
 
     if (eventType === 'session.idle') {
-      await this.markAgentMessageCompleted(projectName, agentType);
+      await this.markAgentMessageCompleted(projectName, instance?.agentType || agentType, instance?.instanceId);
       if (text && text.trim().length > 0) {
         const chunks = splitForDiscord(text.trim());
         for (const chunk of chunks) {
@@ -365,7 +413,8 @@ export class AgentBridge {
     projectPath: string,
     agents: ProjectAgents,
     channelDisplayName?: string,
-    overridePort?: number
+    overridePort?: number,
+    options?: { instanceId?: string },
   ): Promise<{ channelName: string; channelId: string; agentName: string; tmuxSession: string }> {
     const guildId = this.stateManager.getGuildId();
     if (!guildId) {
@@ -380,18 +429,28 @@ export class AgentBridge {
       throw new Error('No agent specified');
     }
 
+    const existingProject = this.stateManager.getProject(projectName);
+    const normalizedExisting = existingProject ? normalizeProjectState(existingProject) : undefined;
+
+    const requestedInstanceId = options?.instanceId?.trim();
+    const instanceId = requestedInstanceId || buildNextInstanceId(normalizedExisting, adapter.config.name);
+    if (normalizedExisting && getProjectInstance(normalizedExisting, instanceId)) {
+      throw new Error(`Instance already exists: ${instanceId}`);
+    }
+
     // Create tmux session (shared mode)
     const sharedSessionName = this.bridgeConfig.tmux.sharedSessionName || 'bridge';
-    const windowName = this.toSharedWindowName(projectName, adapter.config.name);
+    const windowName = this.toProjectScopedName(projectName, adapter.config.name, instanceId);
     const tmuxSession = this.tmux.getOrCreateSession(sharedSessionName, windowName);
 
     // Create Discord channel with custom name or default
-    const channelName = channelDisplayName || `${projectName}-${adapter.config.channelSuffix}`;
+    const channelName = channelDisplayName || this.toProjectScopedName(projectName, adapter.config.channelSuffix, instanceId);
     const channels = await this.discord.createAgentChannels(
       guildId,
       projectName,
       [adapter.config],
-      channelName
+      channelName,
+      { [adapter.config.name]: instanceId },
     );
 
     const channelId = channels[adapter.config.name];
@@ -401,13 +460,11 @@ export class AgentBridge {
     this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
 
     // Start agent in tmux window
-    const discordChannels: { [key: string]: string | undefined } = {
-      [adapter.config.name]: channelId,
-    };
-
     const exportPrefix = this.buildExportPrefix({
       AGENT_DISCORD_PROJECT: projectName,
       AGENT_DISCORD_PORT: String(port),
+      AGENT_DISCORD_AGENT: adapter.config.name,
+      AGENT_DISCORD_INSTANCE: instanceId,
       ...(
         adapter.config.name === 'opencode' && this.bridgeConfig.opencode?.permissionMode === 'allow'
           ? { OPENCODE_PERMISSION: '{"*":"allow"}' }
@@ -457,21 +514,34 @@ export class AgentBridge {
     );
 
     // Save state
-    const projectState = {
+    const baseProject = normalizedExisting || {
       projectName,
       projectPath,
       tmuxSession,
-      tmuxWindows: {
-        [adapter.config.name]: windowName,
-      },
-      eventHooks: {
-        [adapter.config.name]: adapter.config.name === 'opencode' || claudeHookEnabled || geminiHookEnabled,
-      },
-      discordChannels,
-      agents,
       createdAt: new Date(),
       lastActive: new Date(),
+      agents: {},
+      discordChannels: {},
+      instances: {},
     };
+    const nextInstances = {
+      ...(baseProject.instances || {}),
+      [instanceId]: {
+        instanceId,
+        agentType: adapter.config.name,
+        tmuxWindow: windowName,
+        discordChannelId: channelId,
+        eventHook: adapter.config.name === 'opencode' || claudeHookEnabled || geminiHookEnabled,
+      },
+    };
+    const projectState = normalizeProjectState({
+      ...baseProject,
+      projectName,
+      projectPath,
+      tmuxSession,
+      instances: nextInstances,
+      lastActive: new Date(),
+    });
     this.stateManager.setProject(projectState);
 
     return {
@@ -495,6 +565,12 @@ export class AgentBridge {
     return safe.length > 0 ? safe : agentType;
   }
 
+  private toProjectScopedName(projectName: string, base: string, instanceId: string): string {
+    if (instanceId === base) return this.toSharedWindowName(projectName, base);
+    if (instanceId.startsWith(`${base}-`)) return this.toSharedWindowName(projectName, instanceId);
+    return this.toSharedWindowName(projectName, `${base}-${instanceId}`);
+  }
+
   private buildExportPrefix(env: Record<string, string | undefined>): string {
     const parts: string[] = [];
     for (const [key, value] of Object.entries(env)) {
@@ -511,8 +587,8 @@ export class AgentBridge {
     return command.replace(/\bclaude\b/, `claude --plugin-dir ${escapeShellArg(pluginDir)}`);
   }
 
-  private pendingKey(projectName: string, agentType: string): string {
-    return `${projectName}:${agentType}`;
+  private pendingKey(projectName: string, instanceKey: string): string {
+    return `${projectName}:${instanceKey}`;
   }
 
   private getEnvInt(name: string, defaultValue: number): number {
@@ -536,22 +612,22 @@ export class AgentBridge {
     this.tmux.sendEnterToWindow(tmuxSession, windowName, 'opencode');
   }
 
-  private async markAgentMessageCompleted(projectName: string, agentType: string): Promise<void> {
-    const key = this.pendingKey(projectName, agentType);
-    const pending = this.pendingMessageByAgent.get(key);
+  private async markAgentMessageCompleted(projectName: string, agentType: string, instanceId?: string): Promise<void> {
+    const key = this.pendingKey(projectName, instanceId || agentType);
+    const pending = this.pendingMessageByInstance.get(key);
     if (!pending) return;
 
     await this.discord.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '✅');
-    this.pendingMessageByAgent.delete(key);
+    this.pendingMessageByInstance.delete(key);
   }
 
-  private async markAgentMessageError(projectName: string, agentType: string): Promise<void> {
-    const key = this.pendingKey(projectName, agentType);
-    const pending = this.pendingMessageByAgent.get(key);
+  private async markAgentMessageError(projectName: string, agentType: string, instanceId?: string): Promise<void> {
+    const key = this.pendingKey(projectName, instanceId || agentType);
+    const pending = this.pendingMessageByInstance.get(key);
     if (!pending) return;
 
     await this.discord.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '❌');
-    this.pendingMessageByAgent.delete(key);
+    this.pendingMessageByInstance.delete(key);
   }
 
   async stop(): Promise<void> {

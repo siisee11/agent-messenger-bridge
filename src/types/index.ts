@@ -54,10 +54,28 @@ export interface ProjectAgents {
   [agentType: string]: boolean;
 }
 
+export interface ProjectInstanceState {
+  instanceId: string;
+  agentType: string;
+  tmuxWindow?: string;
+  discordChannelId?: string;
+  eventHook?: boolean;
+}
+
 export interface ProjectState {
   projectName: string;
   projectPath: string;
   tmuxSession: string;
+  /**
+   * Multi-instance state keyed by instance ID.
+   *
+   * Example keys:
+   * - "gemini"
+   * - "gemini-2"
+   */
+  instances?: {
+    [instanceId: string]: ProjectInstanceState | undefined;
+  };
   /**
    * Optional mapping from agentType -> tmux window target.
    *

@@ -135,6 +135,8 @@ async function main() {
   const projectName = process.env.AGENT_DISCORD_PROJECT || "";
   if (!projectName) return;
 
+  const agentType = process.env.AGENT_DISCORD_AGENT || "claude";
+  const instanceId = process.env.AGENT_DISCORD_INSTANCE || "";
   const port = process.env.AGENT_DISCORD_PORT || "18470";
   const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
   const text = readLastAssistantText(transcriptPath);
@@ -143,7 +145,8 @@ async function main() {
   try {
     await postToBridge(port, {
       projectName,
-      agentType: "claude",
+      agentType,
+      ...(instanceId ? { instanceId } : {}),
       type: "session.idle",
       text,
     });

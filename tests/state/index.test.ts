@@ -112,7 +112,18 @@ describe('StateManager', () => {
 
       manager.setProject(project);
 
-      expect(manager.getProject('my-project')).toEqual(project);
+      expect(manager.getProject('my-project')).toEqual(
+        expect.objectContaining({
+          ...project,
+          instances: expect.objectContaining({
+            claude: expect.objectContaining({
+              instanceId: 'claude',
+              agentType: 'claude',
+              discordChannelId: 'channel-789',
+            }),
+          }),
+        })
+      );
 
       // Verify it was persisted to storage
       const savedData = storage.readFile(stateFile, 'utf-8');
@@ -128,7 +139,17 @@ describe('StateManager', () => {
       manager.setProject(project);
 
       const retrieved = manager.getProject('existing-project');
-      expect(retrieved).toEqual(project);
+      expect(retrieved).toEqual(
+        expect.objectContaining({
+          ...project,
+          instances: expect.objectContaining({
+            claude: expect.objectContaining({
+              instanceId: 'claude',
+              agentType: 'claude',
+            }),
+          }),
+        })
+      );
     });
 
     it('getProject returns undefined for unknown project', () => {
