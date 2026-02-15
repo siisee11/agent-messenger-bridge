@@ -417,10 +417,12 @@ export class TmuxManager {
     }
   }
 
-  ensureTuiPane(sessionName: string, windowName: string, tuiCommand: string[]): void {
+  ensureTuiPane(sessionName: string, windowName: string, tuiCommand: string[] | string): void {
     const baseTarget = `${sessionName}:${windowName}`;
     const splitWidth = this.getTuiPaneWidth(baseTarget);
-    const escapedTuiCommand = tuiCommand.map((part) => escapeShellArg(part)).join(' ');
+    const escapedTuiCommand = Array.isArray(tuiCommand)
+      ? tuiCommand.map((part) => escapeShellArg(part)).join(' ')
+      : tuiCommand;
 
     const existingTuiTargets = this.findTuiPaneTargets(sessionName, windowName);
     if (existingTuiTargets.length > 0) {

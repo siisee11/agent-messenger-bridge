@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Orange fruit illustration">
+  <rect width="512" height="512" fill="#fff7ea"/>
+  <ellipse cx="300" cy="95" rx="62" ry="28" fill="#3f8f3f" transform="rotate(-22 300 95)"/>
+  <rect x="243" y="84" width="26" height="46" rx="10" fill="#7a4f2a" transform="rotate(-5 256 107)"/>
+  <circle cx="256" cy="286" r="176" fill="#ff8c00"/>
+  <circle cx="256" cy="286" r="160" fill="#ff9a1a" opacity="0.45"/>
+  <circle cx="194" cy="238" r="12" fill="#ffb347" opacity="0.8"/>
+  <circle cx="282" cy="330" r="10" fill="#ffb347" opacity="0.7"/>
+  <circle cx="320" cy="255" r="8" fill="#ffb347" opacity="0.65"/>
+</svg>

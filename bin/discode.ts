@@ -1097,7 +1097,7 @@ async function startCommand(options: TmuxCliOptions & { project?: string; attach
   }
 }
 
-async function newCommand(
+export async function newCommand(
   agentArg: string | undefined,
   options: TmuxCliOptions & { name?: string; attach?: boolean; instance?: string }
 ) {
@@ -1628,7 +1628,7 @@ function agentsCommand() {
   }
 }
 
-function attachCommand(projectName: string | undefined, options: TmuxCliOptions & { instance?: string }) {
+export function attachCommand(projectName: string | undefined, options: TmuxCliOptions & { instance?: string }) {
   ensureTmuxInstalled();
   const effectiveConfig = applyTmuxCliOverrides(config, options);
     const tmux = new TmuxManager(effectiveConfig.tmux.sessionPrefix);
@@ -1680,7 +1680,7 @@ function attachCommand(projectName: string | undefined, options: TmuxCliOptions 
     attachToTmux(sessionName, windowName);
 }
 
-async function stopCommand(
+export async function stopCommand(
   projectName: string | undefined,
   options: TmuxCliOptions & { keepChannel?: boolean; instance?: string }
 ) {
@@ -2015,162 +2015,170 @@ function addTmuxOptions<T>(y: Argv<T>) {
     });
 }
 
-const rawArgs = hideBin(process.argv);
-await maybePromptForUpgrade(rawArgs);
+export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise<void> {
+  await maybePromptForUpgrade(rawArgs);
 
-await yargs(rawArgs)
-  .scriptName('discode')
-  .usage('$0 [command]')
-  .version(CLI_VERSION)
-  .help()
-  .strict()
-  .command(
-    ['$0', 'tui'],
-    'Interactive terminal UI (supports /session_new)',
-    (y: Argv) => addTmuxOptions(y),
-    async (argv: any) =>
-      tuiCommand({
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'onboard',
-    'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission',
-    (y: Argv) => y.option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' }),
-    async (argv: any) => onboardCommand({ token: argv.token })
-  )
-  .command(
-    'setup [token]',
-    false,
-    (y: Argv) => y.positional('token', { type: 'string', describe: 'Discord bot token (deprecated)' }),
-    async (argv: any) => {
-      console.log(chalk.yellow('⚠️ `setup` is deprecated. Use `discode onboard` instead.'));
-      await onboardCommand({ token: argv.token });
-    }
-  )
-  .command(
-    'start',
-    'Start the Discord bridge server',
-    (y: Argv) => addTmuxOptions(y)
-      .option('project', { alias: 'p', type: 'string', describe: 'Start for specific project only' })
-      .option('attach', { alias: 'a', type: 'boolean', describe: 'Attach to tmux session after starting (requires --project)' }),
-    async (argv: any) =>
-      startCommand({
-        project: argv.project,
-        attach: argv.attach,
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'new [agent]',
-    'Quick start: launch daemon, setup project, attach tmux',
-    (y: Argv) => addTmuxOptions(y)
-      .positional('agent', { type: 'string', describe: 'Agent to use (claude, codex, gemini, opencode)' })
-      .option('name', { alias: 'n', type: 'string', describe: 'Project name (defaults to directory name)' })
-      .option('instance', { type: 'string', describe: 'Agent instance ID (e.g. gemini-2)' })
-      .option('attach', { type: 'boolean', default: true, describe: 'Attach to tmux session after setup' }),
-    async (argv: any) =>
-      newCommand(argv.agent, {
-        name: argv.name,
-        instance: argv.instance,
-        attach: argv.attach,
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'config',
-    'Configure Discord bridge settings',
-    (y: Argv) => y
-      .option('server', { alias: 's', type: 'string', describe: 'Set Discord server ID' })
-      .option('token', { alias: 't', type: 'string', describe: 'Set Discord bot token' })
-      .option('port', { alias: 'p', type: 'string', describe: 'Set hook server port' })
-      .option('default-agent', { type: 'string', describe: 'Set default AI CLI for `discode new`' })
-      .option('opencode-permission', {
-        type: 'string',
-        choices: ['allow', 'default'],
-        describe: 'Set OpenCode permission mode',
-      })
-      .option('show', { type: 'boolean', describe: 'Show current configuration' }),
-    async (argv: any) =>
-      configCommand({
-        show: argv.show,
-        server: argv.server,
-        token: argv.token,
-        port: argv.port,
-        defaultAgent: argv.defaultAgent,
-        opencodePermission: argv.opencodePermission,
-      })
-  )
-  .command(
-    'status',
-    'Show bridge and project status',
-    (y: Argv) => addTmuxOptions(y),
-    (argv: any) =>
-      statusCommand({
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'list',
-    'List all configured projects',
-    (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-    (argv: any) => listCommand({ prune: argv.prune })
-  )
-  .command(
-    'ls',
-    false,
-    (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-    (argv: any) => listCommand({ prune: argv.prune })
-  )
-  .command('agents', 'List available AI agent adapters', () => {}, () => agentsCommand())
-  .command(
-    'attach [project]',
-    'Attach to a project tmux session',
-    (y: Argv) => addTmuxOptions(y)
-      .positional('project', { type: 'string' })
-      .option('instance', { type: 'string', describe: 'Attach specific instance ID' }),
-    (argv: any) =>
-      attachCommand(argv.project, {
-        instance: argv.instance,
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'stop [project]',
-    'Stop a project (kills tmux session, deletes Discord channel)',
-    (y: Argv) => addTmuxOptions(y)
-      .positional('project', { type: 'string' })
-      .option('instance', { type: 'string', describe: 'Stop only a specific instance ID' })
-      .option('keep-channel', { type: 'boolean', describe: 'Keep Discord channel (only kill tmux)' }),
-    async (argv: any) =>
-      stopCommand(argv.project, {
-        keepChannel: argv.keepChannel,
-        instance: argv.instance,
-        tmuxSharedSessionName: argv.tmuxSharedSessionName,
-      })
-  )
-  .command(
-    'daemon <action>',
-    'Manage the global bridge daemon (start|stop|status)',
-    (y: Argv) => y.positional('action', { type: 'string', demandOption: true }),
-    async (argv: any) => daemonCommand(argv.action)
-  )
-  .command(
-    'uninstall',
-    'Uninstall discode from this machine',
-    (y: Argv) => y
-      .option('purge', { type: 'boolean', default: false, describe: 'Also remove ~/.discode and installed bridge plugins' })
-      .option('yes', { alias: 'y', type: 'boolean', default: false, describe: 'Skip confirmation prompt' })
-      .option('skip-package-uninstall', {
-        type: 'boolean',
-        default: false,
-        describe: 'Do not run npm/bun global uninstall commands',
-      }),
-    async (argv: any) =>
-      uninstallCommand({
-        purge: argv.purge,
-        yes: argv.yes,
-        skipPackageUninstall: argv.skipPackageUninstall,
-      })
-  )
-  .parseAsync();
+  await yargs(rawArgs)
+    .scriptName('discode')
+    .usage('$0 [command]')
+    .version(CLI_VERSION)
+    .help()
+    .strict()
+    .command(
+      ['$0', 'tui'],
+      'Interactive terminal UI (supports /session_new)',
+      (y: Argv) => addTmuxOptions(y),
+      async (argv: any) =>
+        tuiCommand({
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'onboard',
+      'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission',
+      (y: Argv) => y.option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' }),
+      async (argv: any) => onboardCommand({ token: argv.token })
+    )
+    .command(
+      'setup [token]',
+      false,
+      (y: Argv) => y.positional('token', { type: 'string', describe: 'Discord bot token (deprecated)' }),
+      async (argv: any) => {
+        console.log(chalk.yellow('⚠️ `setup` is deprecated. Use `discode onboard` instead.'));
+        await onboardCommand({ token: argv.token });
+      }
+    )
+    .command(
+      'start',
+      'Start the Discord bridge server',
+      (y: Argv) => addTmuxOptions(y)
+        .option('project', { alias: 'p', type: 'string', describe: 'Start for specific project only' })
+        .option('attach', { alias: 'a', type: 'boolean', describe: 'Attach to tmux session after starting (requires --project)' }),
+      async (argv: any) =>
+        startCommand({
+          project: argv.project,
+          attach: argv.attach,
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'new [agent]',
+      'Quick start: launch daemon, setup project, attach tmux',
+      (y: Argv) => addTmuxOptions(y)
+        .positional('agent', { type: 'string', describe: 'Agent to use (claude, codex, gemini, opencode)' })
+        .option('name', { alias: 'n', type: 'string', describe: 'Project name (defaults to directory name)' })
+        .option('instance', { type: 'string', describe: 'Agent instance ID (e.g. gemini-2)' })
+        .option('attach', { type: 'boolean', default: true, describe: 'Attach to tmux session after setup' }),
+      async (argv: any) =>
+        newCommand(argv.agent, {
+          name: argv.name,
+          instance: argv.instance,
+          attach: argv.attach,
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'config',
+      'Configure Discord bridge settings',
+      (y: Argv) => y
+        .option('server', { alias: 's', type: 'string', describe: 'Set Discord server ID' })
+        .option('token', { alias: 't', type: 'string', describe: 'Set Discord bot token' })
+        .option('port', { alias: 'p', type: 'string', describe: 'Set hook server port' })
+        .option('default-agent', { type: 'string', describe: 'Set default AI CLI for `discode new`' })
+        .option('opencode-permission', {
+          type: 'string',
+          choices: ['allow', 'default'],
+          describe: 'Set OpenCode permission mode',
+        })
+        .option('show', { type: 'boolean', describe: 'Show current configuration' }),
+      async (argv: any) =>
+        configCommand({
+          show: argv.show,
+          server: argv.server,
+          token: argv.token,
+          port: argv.port,
+          defaultAgent: argv.defaultAgent,
+          opencodePermission: argv.opencodePermission,
+        })
+    )
+    .command(
+      'status',
+      'Show bridge and project status',
+      (y: Argv) => addTmuxOptions(y),
+      (argv: any) =>
+        statusCommand({
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'list',
+      'List all configured projects',
+      (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
+      (argv: any) => listCommand({ prune: argv.prune })
+    )
+    .command(
+      'ls',
+      false,
+      (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
+      (argv: any) => listCommand({ prune: argv.prune })
+    )
+    .command('agents', 'List available AI agent adapters', () => {}, () => agentsCommand())
+    .command(
+      'attach [project]',
+      'Attach to a project tmux session',
+      (y: Argv) => addTmuxOptions(y)
+        .positional('project', { type: 'string' })
+        .option('instance', { type: 'string', describe: 'Attach specific instance ID' }),
+      (argv: any) =>
+        attachCommand(argv.project, {
+          instance: argv.instance,
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'stop [project]',
+      'Stop a project (kills tmux session, deletes Discord channel)',
+      (y: Argv) => addTmuxOptions(y)
+        .positional('project', { type: 'string' })
+        .option('instance', { type: 'string', describe: 'Stop only a specific instance ID' })
+        .option('keep-channel', { type: 'boolean', describe: 'Keep Discord channel (only kill tmux)' }),
+      async (argv: any) =>
+        stopCommand(argv.project, {
+          keepChannel: argv.keepChannel,
+          instance: argv.instance,
+          tmuxSharedSessionName: argv.tmuxSharedSessionName,
+        })
+    )
+    .command(
+      'daemon <action>',
+      'Manage the global bridge daemon (start|stop|status)',
+      (y: Argv) => y.positional('action', { type: 'string', demandOption: true }),
+      async (argv: any) => daemonCommand(argv.action)
+    )
+    .command(
+      'uninstall',
+      'Uninstall discode from this machine',
+      (y: Argv) => y
+        .option('purge', { type: 'boolean', default: false, describe: 'Also remove ~/.discode and installed bridge plugins' })
+        .option('yes', { alias: 'y', type: 'boolean', default: false, describe: 'Skip confirmation prompt' })
+        .option('skip-package-uninstall', {
+          type: 'boolean',
+          default: false,
+          describe: 'Do not run npm/bun global uninstall commands',
+        }),
+      async (argv: any) =>
+        uninstallCommand({
+          purge: argv.purge,
+          yes: argv.yes,
+          skipPackageUninstall: argv.skipPackageUninstall,
+        })
+    )
+    .parseAsync();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runCli().catch((error) => {
+    console.error(chalk.red('Fatal CLI error:'), error);
+    process.exit(1);
+  });
+}
