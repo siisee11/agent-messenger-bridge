@@ -3,7 +3,36 @@
 
 import { InputRenderable, RGBA, TextAttributes, TextareaRenderable } from '@opentui/core';
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+
+declare const DISCODE_VERSION: string | undefined;
+
+function resolveTuiVersion(): string {
+  if (typeof DISCODE_VERSION !== 'undefined' && DISCODE_VERSION) {
+    return DISCODE_VERSION;
+  }
+
+  const candidates = [
+    resolve(import.meta.dirname, '../package.json'),
+    resolve(import.meta.dirname, '../../package.json'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf-8')) as { version?: string };
+      if (parsed.version) return parsed.version;
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  return process.env.npm_package_version || '0.0.0';
+}
+
+const TUI_VERSION = resolveTuiVersion();
+const TUI_VERSION_LABEL = TUI_VERSION.startsWith('v') ? TUI_VERSION : `v${TUI_VERSION}`;
 
 type TuiInput = {
   currentSession?: string;
@@ -37,6 +66,7 @@ const slashCommands = [
   { command: '/list', description: 'show current session list' },
   { command: '/stop', description: 'select and stop a project' },
   { command: '/projects', description: 'list configured projects' },
+  { command: '/config', description: 'manage keepChannel/defaultAgent' },
   { command: '/help', description: 'show available commands' },
   { command: '/exit', description: 'close the TUI' },
   { command: '/quit', description: 'close the TUI' },
@@ -47,6 +77,7 @@ const paletteCommands = [
   { command: '/list', description: 'Show current session list' },
   { command: '/stop', description: 'Select and stop a project' },
   { command: '/projects', description: 'List configured projects' },
+  { command: '/config', description: 'Manage keepChannel/defaultAgent' },
   { command: '/help', description: 'Show help' },
   { command: '/exit', description: 'Exit TUI' },
   { command: '/quit', description: 'Exit TUI' },
@@ -503,8 +534,9 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
           </Show>
 
           <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" marginTop={1}>
-            <box paddingLeft={1} paddingRight={1}>
+            <box paddingLeft={1} paddingRight={1} flexDirection="row" justifyContent="space-between">
               <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current sessions</text>
+              <text fg={palette.muted}>{TUI_VERSION_LABEL}</text>
             </box>
             <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
               <Show when={sessionList().length > 0} fallback={<text fg={palette.muted}>No running sessions</text>}>

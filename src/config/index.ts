@@ -16,6 +16,7 @@ export interface StoredConfig {
   hookServerPort?: number;
   defaultAgentCli?: string;
   opencodePermissionMode?: 'allow' | 'default';
+  keepChannelOnStop?: boolean;
 }
 
 export class ConfigManager {

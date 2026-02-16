@@ -1,7 +1,7 @@
 import { basename } from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
-import { config, validateConfig } from '../../config/index.js';
+import { config, getConfigValue, saveConfig, validateConfig } from '../../config/index.js';
 import { stateManager } from '../../state/index.js';
 import { agentRegistry } from '../../agents/index.js';
 import { TmuxManager } from '../../tmux/manager.js';
@@ -88,6 +88,8 @@ function parseNewCommand(raw: string): {
 
 export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   const effectiveConfig = applyTmuxCliOverrides(config, options);
+  let keepChannelOnStop = getConfigValue('keepChannelOnStop') === true;
+
   const handler = async (command: string, append: (line: string) => void): Promise<boolean> => {
     if (command === '/exit' || command === '/quit') {
       append('Bye!');
@@ -95,7 +97,89 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     }
 
     if (command === '/help') {
-      append('Commands: /new [name] [agent] [--instance id] [--attach], /list, /projects, /help, /exit');
+      append('Commands: /new [name] [agent] [--instance id] [--attach], /list, /projects, /config [keepChannel [on|off|toggle] | defaultAgent [agent|auto]], /help, /exit');
+      return false;
+    }
+
+    if (command === '/config' || command === 'config') {
+      append(`keepChannel: ${keepChannelOnStop ? 'on' : 'off'}`);
+      append(`defaultAgent: ${config.defaultAgentCli || '(auto)'}`);
+      append('Usage: /config keepChannel [on|off|toggle]');
+      append('Usage: /config defaultAgent [agent|auto]');
+      return false;
+    }
+
+    if (command.startsWith('/config ') || command.startsWith('config ')) {
+      const parts = command.trim().split(/\s+/).filter(Boolean);
+      const key = (parts[1] || '').toLowerCase();
+      if (key === 'defaultagent' || key === 'default-agent') {
+        const availableAgents = agentRegistry.getAll().map((agent) => agent.config.name).sort((a, b) => a.localeCompare(b));
+        const value = (parts[2] || '').trim().toLowerCase();
+
+        if (!value) {
+          append(`defaultAgent: ${config.defaultAgentCli || '(auto)'}`);
+          append(`Available: ${availableAgents.join(', ')}`);
+          append('Use: /config defaultAgent [agent|auto]');
+          return false;
+        }
+
+        if (value === 'auto' || value === 'clear' || value === 'unset') {
+          try {
+            saveConfig({ defaultAgentCli: undefined });
+            append('✅ defaultAgent is now auto (first installed agent).');
+          } catch (error) {
+            append(`⚠️ Failed to persist config: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          return false;
+        }
+
+        const selected = agentRegistry.get(value);
+        if (!selected) {
+          append(`⚠️ Unknown agent: ${value}`);
+          append(`Available: ${availableAgents.join(', ')}`);
+          return false;
+        }
+
+        try {
+          saveConfig({ defaultAgentCli: selected.config.name });
+          append(`✅ defaultAgent is now ${selected.config.name}`);
+        } catch (error) {
+          append(`⚠️ Failed to persist config: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return false;
+      }
+
+      if (key !== 'keepchannel' && key !== 'keep-channel') {
+        append(`⚠️ Unknown config key: ${parts[1] || '(empty)'}`);
+        append('Supported keys: keepChannel, defaultAgent');
+        return false;
+      }
+
+      const modeRaw = (parts[2] || 'toggle').toLowerCase();
+      if (modeRaw === 'on' || modeRaw === 'true' || modeRaw === '1') {
+        keepChannelOnStop = true;
+      } else if (modeRaw === 'off' || modeRaw === 'false' || modeRaw === '0') {
+        keepChannelOnStop = false;
+      } else if (modeRaw === 'toggle') {
+        keepChannelOnStop = !keepChannelOnStop;
+      } else {
+        append(`⚠️ Unknown mode: ${parts[2]}`);
+        append('Use on, off, or toggle');
+        return false;
+      }
+
+      try {
+        saveConfig({ keepChannelOnStop });
+      } catch (error) {
+        append(`⚠️ Failed to persist config: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      append(`✅ keepChannel is now ${keepChannelOnStop ? 'on' : 'off'}`);
+      append(
+        keepChannelOnStop
+          ? 'stop will preserve Discord channels.'
+          : 'stop will delete Discord channels (default).',
+      );
       return false;
     }
 
@@ -162,6 +246,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       }
       await stopCommand(projectName, {
         instance: instanceId,
+        keepChannel: keepChannelOnStop,
         tmuxSharedSessionName: options.tmuxSharedSessionName,
       });
       append(`✅ Stopped ${instanceId ? `instance ${instanceId}` : 'project'}: ${projectName}`);
@@ -289,6 +374,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       },
       onStopProject: async (project: string) => {
         await stopCommand(project, {
+          keepChannel: keepChannelOnStop,
           tmuxSharedSessionName: options.tmuxSharedSessionName,
         });
       },

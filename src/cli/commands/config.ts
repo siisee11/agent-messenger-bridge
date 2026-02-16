@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { agentRegistry } from '../../agents/index.js';
 import { stateManager } from '../../state/index.js';
-import { config, getConfigPath, saveConfig } from '../../config/index.js';
+import { config, getConfigPath, getConfigValue, saveConfig } from '../../config/index.js';
 import { normalizeDiscordToken } from '../../config/token.js';
 
 export async function configCommand(options: {
@@ -20,6 +20,7 @@ export async function configCommand(options: {
     console.log(chalk.gray(`   Hook Port: ${config.hookServerPort || 18470}`));
     console.log(chalk.gray(`   Default AI CLI: ${config.defaultAgentCli || '(not set)'}`));
     console.log(chalk.gray(`   OpenCode Permission Mode: ${config.opencode?.permissionMode || '(not set)'}`));
+    console.log(chalk.gray(`   Keep Channel On Stop: ${getConfigValue('keepChannelOnStop') ? 'on' : 'off'}`));
     console.log(chalk.cyan('\n🤖 Registered Agents:\n'));
     for (const adapter of agentRegistry.getAll()) {
       console.log(chalk.gray(`   - ${adapter.config.displayName} (${adapter.config.name})`));
