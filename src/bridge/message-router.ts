@@ -1,0 +1,126 @@
+import { DiscordClient } from '../discord/client.js';
+import { TmuxManager } from '../tmux/manager.js';
+import { CodexSubmitter } from '../codex/submitter.js';
+import type { IStateManager } from '../types/interfaces.js';
+import {
+  findProjectInstanceByChannel,
+  getPrimaryInstanceForAgent,
+  getProjectInstance,
+  normalizeProjectState,
+} from '../state/instances.js';
+import { downloadFileAttachments, buildFileMarkers } from '../infra/file-downloader.js';
+import { PendingMessageTracker } from './pending-message-tracker.js';
+
+export interface BridgeMessageRouterDeps {
+  discord: DiscordClient;
+  tmux: TmuxManager;
+  codexSubmitter: CodexSubmitter;
+  stateManager: IStateManager;
+  pendingTracker: PendingMessageTracker;
+  sanitizeInput: (content: string) => string | null;
+}
+
+export class BridgeMessageRouter {
+  constructor(private deps: BridgeMessageRouterDeps) {}
+
+  register(): void {
+    const { discord } = this.deps;
+
+    discord.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId, attachments) => {
+      console.log(
+        `📨 [${projectName}/${agentType}${mappedInstanceId ? `#${mappedInstanceId}` : ''}] ${content.substring(0, 50)}...`,
+      );
+
+      const project = this.deps.stateManager.getProject(projectName);
+      if (!project) {
+        console.warn(`Project ${projectName} not found in state`);
+        await discord.sendToChannel(channelId, `⚠️ Project "${projectName}" not found in state`);
+        return;
+      }
+
+      const normalizedProject = normalizeProjectState(project);
+      const mappedInstance =
+        (mappedInstanceId ? getProjectInstance(normalizedProject, mappedInstanceId) : undefined) ||
+        findProjectInstanceByChannel(normalizedProject, channelId) ||
+        getPrimaryInstanceForAgent(normalizedProject, agentType);
+      if (!mappedInstance) {
+        await discord.sendToChannel(channelId, '⚠️ Agent instance mapping not found for this channel');
+        return;
+      }
+
+      const resolvedAgentType = mappedInstance.agentType;
+      const instanceKey = mappedInstance.instanceId;
+      const windowName = mappedInstance.tmuxWindow || instanceKey;
+
+      let enrichedContent = content;
+      if (attachments && attachments.length > 0) {
+        try {
+          const downloaded = await downloadFileAttachments(attachments, project.projectPath);
+          if (downloaded.length > 0) {
+            const markers = buildFileMarkers(downloaded);
+            enrichedContent = content + markers;
+            console.log(`📎 [${projectName}/${agentType}] ${downloaded.length} file(s) attached`);
+          }
+        } catch (error) {
+          console.warn('Failed to process file attachments:', error);
+        }
+      }
+
+      const sanitized = this.deps.sanitizeInput(enrichedContent);
+      if (!sanitized) {
+        await discord.sendToChannel(channelId, '⚠️ Invalid message: empty, too long (>10000 chars), or contains invalid characters');
+        return;
+      }
+
+      if (messageId) {
+        await this.deps.pendingTracker.markPending(projectName, resolvedAgentType, channelId, messageId, instanceKey);
+      }
+
+      try {
+        if (resolvedAgentType === 'codex') {
+          const ok = await this.deps.codexSubmitter.submit(normalizedProject.tmuxSession, windowName, sanitized);
+          if (!ok) {
+            await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
+            await discord.sendToChannel(
+              channelId,
+              '⚠️ Codex에 메시지를 제출하지 못했습니다. Codex가 busy 상태일 수 있어요.\n' +
+              'tmux로 붙어서 Enter를 한 번 눌러보거나, 잠시 후 다시 보내주세요.'
+            );
+          }
+        } else if (resolvedAgentType === 'opencode') {
+          await this.submitToOpencode(normalizedProject.tmuxSession, windowName, sanitized);
+        } else {
+          this.deps.tmux.sendKeysToWindow(normalizedProject.tmuxSession, windowName, sanitized, resolvedAgentType);
+        }
+      } catch (error) {
+        await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
+        await discord.sendToChannel(
+          channelId,
+          `⚠️ tmux로 메시지 전달 실패: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+
+      this.deps.stateManager.updateLastActive(projectName);
+    });
+  }
+
+  private getEnvInt(name: string, defaultValue: number): number {
+    const raw = process.env[name];
+    if (!raw) return defaultValue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return defaultValue;
+    return Math.trunc(n);
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    if (ms <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async submitToOpencode(tmuxSession: string, windowName: string, prompt: string): Promise<void> {
+    this.deps.tmux.typeKeysToWindow(tmuxSession, windowName, prompt.trimEnd(), 'opencode');
+    const delayMs = this.getEnvInt('AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS', 75);
+    await this.sleep(delayMs);
+    this.deps.tmux.sendEnterToWindow(tmuxSession, windowName, 'opencode');
+  }
+}
