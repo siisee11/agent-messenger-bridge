@@ -7,7 +7,6 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import type { Argv } from 'yargs';
-import { defaultDaemonManager } from '../src/daemon.js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
@@ -24,6 +23,7 @@ import { listCommand } from '../src/cli/commands/list.js';
 import { agentsCommand } from '../src/cli/commands/agents.js';
 import { daemonCommand } from '../src/cli/commands/daemon.js';
 import { uninstallCommand } from '../src/cli/commands/uninstall.js';
+import { getDaemonStatus, restartDaemonIfRunning } from '../src/app/daemon-service.js';
 import { addTmuxOptions } from '../src/cli/common/options.js';
 import { confirmYesNo, isInteractiveShell } from '../src/cli/common/interactive.js';
 
@@ -134,24 +134,22 @@ function detectUpgradeInstallPlan(): UpgradeInstallPlan | null {
 }
 
 async function restartDaemonIfRunningForUpgrade(): Promise<void> {
-  const running = await defaultDaemonManager.isRunning();
-  if (!running) return;
+  const status = await getDaemonStatus();
+  if (!status.running) return;
 
-  const port = defaultDaemonManager.getPort();
+  const port = status.port;
   console.log(chalk.gray('   Restarting bridge daemon to apply update...'));
 
-  if (!defaultDaemonManager.stopDaemon()) {
-    console.log(chalk.yellow('⚠️ Could not stop daemon automatically. Restart manually with: discode daemon stop && discode daemon start'));
+  const restart = await restartDaemonIfRunning();
+  if (!restart.restarted) {
+    console.log(chalk.yellow('⚠️ Could not restart daemon automatically. Restart manually with: discode daemon stop && discode daemon start'));
     return;
   }
 
-  const entryPoint = resolve(import.meta.dirname, '../src/daemon-entry.js');
-  defaultDaemonManager.startDaemon(entryPoint);
-  const ready = await defaultDaemonManager.waitForReady();
-  if (ready) {
+  if (restart.ready) {
     console.log(chalk.green(`✅ Bridge daemon restarted (port ${port})`));
   } else {
-    console.log(chalk.yellow(`⚠️ Daemon may not be ready yet. Check logs: ${defaultDaemonManager.getLogFile()}`));
+    console.log(chalk.yellow(`⚠️ Daemon may not be ready yet. Check logs: ${restart.logFile}`));
   }
 }
 

@@ -1,31 +1,24 @@
-import { basename, resolve } from 'path';
+import { basename } from 'path';
 import chalk from 'chalk';
-import { AgentBridge } from '../../index.js';
-import { stateManager, type ProjectState } from '../../state/index.js';
+import { stateManager } from '../../state/index.js';
 import { validateConfig, config } from '../../config/index.js';
 import { TmuxManager } from '../../tmux/manager.js';
 import { agentRegistry } from '../../agents/index.js';
-import { defaultDaemonManager } from '../../daemon.js';
-import { installOpencodePlugin } from '../../opencode/plugin-installer.js';
-import { installClaudePlugin } from '../../claude/plugin-installer.js';
-import { installGeminiHook } from '../../gemini/hook-installer.js';
-import { installCodexHook } from '../../codex/plugin-installer.js';
 import {
   buildNextInstanceId,
   getPrimaryInstanceForAgent,
   getProjectInstance,
   listProjectInstances,
-  normalizeProjectState,
 } from '../../state/instances.js';
+import { ensureDaemonRunning } from '../../app/daemon-service.js';
+import { resumeProjectInstance, setupProjectInstance } from '../../app/project-service.js';
 import type { TmuxCliOptions } from '../common/types.js';
 import {
   applyTmuxCliOverrides,
   attachToTmux,
-  buildExportPrefix,
   cleanupStaleDiscodeTuiProcesses,
   ensureProjectTuiPane,
   ensureTmuxInstalled,
-  escapeShellArg,
   pruneStaleProjects,
   resolveProjectWindowName,
   toSharedWindowName,
@@ -49,7 +42,7 @@ export async function newCommand(
 
     const projectPath = process.cwd();
     const projectName = options.name || basename(projectPath);
-    const port = defaultDaemonManager.getPort();
+    let port = effectiveConfig.hookServerPort || 18470;
 
     const staleTuiCount = cleanupStaleDiscodeTuiProcesses();
     if (staleTuiCount > 0) {
@@ -140,16 +133,14 @@ export async function newCommand(
 
     await ensureOpencodePermissionChoice({ shouldPrompt: agentName === 'opencode' });
 
-    const running = await defaultDaemonManager.isRunning();
-    if (!running) {
+    const daemon = await ensureDaemonRunning();
+    port = daemon.port;
+    if (!daemon.alreadyRunning) {
       console.log(chalk.gray('   Starting bridge daemon...'));
-      const entryPoint = resolve(import.meta.dirname, '../../daemon-entry.js');
-      defaultDaemonManager.startDaemon(entryPoint);
-      const ready = await defaultDaemonManager.waitForReady();
-      if (ready) {
+      if (daemon.ready) {
         console.log(chalk.green(`✅ Bridge daemon started (port ${port})`));
       } else {
-        console.log(chalk.yellow(`⚠️  Daemon may not be ready yet. Check logs: ${defaultDaemonManager.getLogFile()}`));
+        console.log(chalk.yellow(`⚠️  Daemon may not be ready yet. Check logs: ${daemon.logFile}`));
       }
     } else {
       console.log(chalk.green(`✅ Bridge daemon already running (port ${port})`));
@@ -171,40 +162,21 @@ export async function newCommand(
         : 'Setting up new project...';
       console.log(chalk.gray(`   ${modeLabel}`));
 
-      const bridge = new AgentBridge({ config: effectiveConfig });
-      await bridge.connect();
-      const agents = { [agentName]: true };
-      const result = await bridge.setupProject(
+      const result = await setupProjectInstance({
+        config: effectiveConfig,
         projectName,
-        existingProject?.projectPath || projectPath,
-        agents,
-        undefined,
+        projectPath,
+        agentName,
+        instanceId: instanceIdToCreate,
         port,
-        { instanceId: instanceIdToCreate },
-      );
-      await bridge.stop();
+      });
 
-      if (!existingProject) {
+      if (result.createdNewProject) {
         console.log(chalk.green('✅ Project created'));
       } else {
         console.log(chalk.green('✅ Agent instance added to existing project'));
       }
       console.log(chalk.cyan(`   Channel: #${result.channelName}`));
-
-      try {
-        const http = await import('http');
-        await new Promise<void>((resolveDone) => {
-          const req = http.request(`http://127.0.0.1:${port}/reload`, { method: 'POST' }, () => resolveDone());
-          req.on('error', () => resolveDone());
-          req.setTimeout(2000, () => {
-            req.destroy();
-            resolveDone();
-          });
-          req.end();
-        });
-      } catch {
-        // daemon will pick up on next restart
-      }
     } else {
       const resumeInstance =
         existingRequestedInstance ||
@@ -216,103 +188,19 @@ export async function newCommand(
       }
       activeInstanceId = resumeInstance.instanceId;
 
-      const fullSessionName = existingProject!.tmuxSession;
-      const prefix = effectiveConfig.tmux.sessionPrefix;
-      if (fullSessionName.startsWith(prefix)) {
-        tmux.getOrCreateSession(fullSessionName.slice(prefix.length));
+      const resumeResult = await resumeProjectInstance({
+        config: effectiveConfig,
+        projectName,
+        project: existingProject!,
+        instance: resumeInstance,
+        port,
+      });
+
+      for (const message of resumeResult.infoMessages) {
+        console.log(chalk.gray(`   ${message}`));
       }
-      const sharedFull = `${prefix}${effectiveConfig.tmux.sharedSessionName || 'bridge'}`;
-      const isSharedSession = fullSessionName === sharedFull;
-      if (!isSharedSession) {
-        tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PROJECT', projectName);
-      }
-      tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(port));
-
-      const resumeWindowName = resolveProjectWindowName(existingProject!, resumeInstance.agentType, effectiveConfig.tmux, resumeInstance.instanceId);
-      if (!tmux.windowExists(fullSessionName, resumeWindowName)) {
-        const adapter = agentRegistry.get(resumeInstance.agentType);
-        if (adapter) {
-          let claudePluginDir: string | undefined;
-          let hookEnabled = !!resumeInstance.eventHook;
-
-          if (resumeInstance.agentType === 'opencode') {
-            try {
-              const pluginPath = installOpencodePlugin(existingProject!.projectPath);
-              hookEnabled = true;
-              console.log(chalk.gray(`   Reinstalled OpenCode plugin: ${pluginPath}`));
-            } catch (error) {
-              console.log(chalk.yellow(`⚠️ Could not reinstall OpenCode plugin: ${error instanceof Error ? error.message : String(error)}`));
-            }
-          }
-
-          if (resumeInstance.agentType === 'claude') {
-            try {
-              claudePluginDir = installClaudePlugin(existingProject!.projectPath);
-              hookEnabled = true;
-              console.log(chalk.gray(`   Reinstalled Claude Code plugin: ${claudePluginDir}`));
-            } catch (error) {
-              console.log(chalk.yellow(`⚠️ Could not reinstall Claude Code plugin: ${error instanceof Error ? error.message : String(error)}`));
-            }
-          }
-
-          if (resumeInstance.agentType === 'gemini') {
-            try {
-              const hookPath = installGeminiHook(existingProject!.projectPath);
-              hookEnabled = true;
-              console.log(chalk.gray(`   Reinstalled Gemini CLI hook: ${hookPath}`));
-            } catch (error) {
-              console.log(chalk.yellow(`⚠️ Could not reinstall Gemini CLI hook: ${error instanceof Error ? error.message : String(error)}`));
-            }
-          }
-
-          if (resumeInstance.agentType === 'codex') {
-            try {
-              const hookPath = installCodexHook();
-              hookEnabled = true;
-              console.log(chalk.gray(`   Reinstalled Codex notify hook: ${hookPath}`));
-            } catch (error) {
-              console.log(chalk.yellow(`⚠️ Could not reinstall Codex notify hook: ${error instanceof Error ? error.message : String(error)}`));
-            }
-          }
-
-          const permissionAllow =
-            resumeInstance.agentType === 'opencode' && effectiveConfig.opencode?.permissionMode === 'allow';
-          let baseCommand = adapter.getStartCommand(existingProject!.projectPath, permissionAllow);
-
-          if (claudePluginDir && !(/--plugin-dir\b/.test(baseCommand))) {
-            const pluginPattern = /((?:^|&&|;)\s*)claude\b/;
-            if (pluginPattern.test(baseCommand)) {
-              baseCommand = baseCommand.replace(pluginPattern, `$1claude --plugin-dir ${escapeShellArg(claudePluginDir)}`);
-            }
-          }
-
-          const startCommand =
-            buildExportPrefix({
-              AGENT_DISCORD_PROJECT: projectName,
-              AGENT_DISCORD_PORT: String(port),
-              AGENT_DISCORD_AGENT: resumeInstance.agentType,
-              AGENT_DISCORD_INSTANCE: resumeInstance.instanceId,
-              ...(permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
-            }) + baseCommand;
-
-          tmux.startAgentInWindow(fullSessionName, resumeWindowName, startCommand);
-          console.log(chalk.gray(`   Restored missing tmux window: ${resumeWindowName}`));
-
-          if (hookEnabled && !resumeInstance.eventHook) {
-            const normalizedProject = normalizeProjectState(existingProject!);
-            const updatedProject: ProjectState = {
-              ...normalizedProject,
-              instances: {
-                ...(normalizedProject.instances || {}),
-                [resumeInstance.instanceId]: {
-                  ...resumeInstance,
-                  eventHook: true,
-                },
-              },
-            };
-            stateManager.setProject(updatedProject);
-          }
-        }
+      for (const message of resumeResult.warningMessages) {
+        console.log(chalk.yellow(`⚠️ ${message}`));
       }
       console.log(chalk.green('✅ Existing project resumed'));
     }

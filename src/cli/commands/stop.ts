@@ -2,9 +2,10 @@ import { basename } from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import { stateManager } from '../../state/index.js';
-import { config, validateConfig } from '../../config/index.js';
-import { DiscordClient } from '../../discord/client.js';
-import { listProjectInstances, getProjectInstance, normalizeProjectState } from '../../state/instances.js';
+import { config } from '../../config/index.js';
+import { listProjectInstances, getProjectInstance } from '../../state/instances.js';
+import { deleteDiscordChannels } from '../../app/channel-service.js';
+import { removeInstanceFromProjectState, removeProjectState } from '../../app/project-service.js';
 import type { TmuxCliOptions } from '../common/types.js';
 import {
   applyTmuxCliOverrides,
@@ -71,32 +72,19 @@ export async function stopCommand(
 
     if (!options.keepChannel && instance.discordChannelId) {
       try {
-        validateConfig();
-        const client = new DiscordClient(config.discord.token);
-        await client.connect();
-        const deleted = await client.deleteChannel(instance.discordChannelId);
-        if (deleted) {
-          console.log(chalk.green(`✅ Discord channel deleted: ${instance.discordChannelId}`));
+        const deleted = await deleteDiscordChannels([instance.discordChannelId]);
+        if (deleted.length > 0) {
+          console.log(chalk.green(`✅ Discord channel deleted: ${deleted[0]}`));
         }
-        await client.disconnect();
       } catch (error) {
         console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
       }
     }
 
-    const normalized = normalizeProjectState(project);
-    const nextInstances = { ...(normalized.instances || {}) };
-    delete nextInstances[instance.instanceId];
-
-    if (Object.keys(nextInstances).length === 0) {
-      stateManager.removeProject(projectName);
+    const stateUpdate = removeInstanceFromProjectState(projectName, instance.instanceId);
+    if (stateUpdate.removedProject) {
       console.log(chalk.green('✅ Project removed from state (last instance stopped)'));
     } else {
-      stateManager.setProject({
-        ...normalized,
-        instances: nextInstances,
-        lastActive: new Date(),
-      });
       console.log(chalk.green(`✅ Instance removed from state: ${instance.instanceId}`));
     }
 
@@ -154,18 +142,10 @@ export async function stopCommand(
       .filter((channelId): channelId is string => !!channelId);
     if (channelIds.length > 0) {
       try {
-        validateConfig();
-        const client = new DiscordClient(config.discord.token);
-        await client.connect();
-
-        for (const channelId of channelIds) {
-          const deleted = await client.deleteChannel(channelId);
-          if (deleted) {
-            console.log(chalk.green(`✅ Discord channel deleted: ${channelId}`));
-          }
+        const deleted = await deleteDiscordChannels(channelIds);
+        for (const channelId of deleted) {
+          console.log(chalk.green(`✅ Discord channel deleted: ${channelId}`));
         }
-
-        await client.disconnect();
       } catch (error) {
         console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
       }
@@ -173,7 +153,7 @@ export async function stopCommand(
   }
 
   if (project) {
-    stateManager.removeProject(projectName);
+    removeProjectState(projectName);
     console.log(chalk.green('✅ Project removed from state'));
   }
 
