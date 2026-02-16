@@ -15,6 +15,7 @@ export type ProjectState = SharedProjectState;
 export interface BridgeState {
   projects: Record<string, ProjectState>;
   guildId?: string;
+  slackWorkspaceId?: string;
 }
 
 
@@ -87,6 +88,15 @@ export class StateManager implements IStateManager {
 
   setGuildId(guildId: string): void {
     this.state.guildId = guildId;
+    this.saveState();
+  }
+
+  getWorkspaceId(): string | undefined {
+    return this.state.slackWorkspaceId || this.state.guildId;
+  }
+
+  setWorkspaceId(id: string): void {
+    this.state.slackWorkspaceId = id;
     this.saveState();
   }
 

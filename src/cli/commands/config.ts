@@ -11,12 +11,18 @@ export async function configCommand(options: {
   port?: string | number;
   defaultAgent?: string;
   opencodePermission?: 'allow' | 'default';
+  slackBotToken?: string;
+  slackAppToken?: string;
+  platform?: string;
 }) {
   if (options.show) {
     console.log(chalk.cyan('\n📋 Current configuration:\n'));
     console.log(chalk.gray(`   Config file: ${getConfigPath()}`));
-    console.log(chalk.gray(`   Server ID: ${stateManager.getGuildId() || '(not set)'}`));
-    console.log(chalk.gray(`   Token: ${config.discord.token ? '****' + config.discord.token.slice(-4) : '(not set)'}`));
+    console.log(chalk.gray(`   Platform: ${config.messagingPlatform || 'discord'}`));
+    console.log(chalk.gray(`   Server/Workspace ID: ${stateManager.getGuildId() || '(not set)'}`));
+    console.log(chalk.gray(`   Discord Token: ${config.discord.token ? '****' + config.discord.token.slice(-4) : '(not set)'}`));
+    console.log(chalk.gray(`   Slack Bot Token: ${config.slack?.botToken ? '****' + config.slack.botToken.slice(-4) : '(not set)'}`));
+    console.log(chalk.gray(`   Slack App Token: ${config.slack?.appToken ? '****' + config.slack.appToken.slice(-4) : '(not set)'}`));
     console.log(chalk.gray(`   Hook Port: ${config.hookServerPort || 18470}`));
     console.log(chalk.gray(`   Default AI CLI: ${config.defaultAgentCli || '(not set)'}`));
     console.log(chalk.gray(`   OpenCode Permission Mode: ${config.opencode?.permissionMode || '(not set)'}`));
@@ -30,6 +36,13 @@ export async function configCommand(options: {
   }
 
   let updated = false;
+
+  if (options.platform) {
+    const platform = options.platform === 'slack' ? 'slack' : 'discord';
+    saveConfig({ messagingPlatform: platform });
+    console.log(chalk.green(`✅ Platform saved: ${platform}`));
+    updated = true;
+  }
 
   if (options.server) {
     stateManager.setGuildId(options.server);
@@ -46,6 +59,18 @@ export async function configCommand(options: {
     }
     saveConfig({ token });
     console.log(chalk.green(`✅ Bot token saved (****${token.slice(-4)})`));
+    updated = true;
+  }
+
+  if (options.slackBotToken) {
+    saveConfig({ slackBotToken: options.slackBotToken });
+    console.log(chalk.green(`✅ Slack bot token saved (****${options.slackBotToken.slice(-4)})`));
+    updated = true;
+  }
+
+  if (options.slackAppToken) {
+    saveConfig({ slackAppToken: options.slackAppToken });
+    console.log(chalk.green(`✅ Slack app token saved (****${options.slackAppToken.slice(-4)})`));
     updated = true;
   }
 
@@ -81,6 +106,9 @@ export async function configCommand(options: {
     console.log(chalk.gray('  discode config --token YOUR_BOT_TOKEN'));
     console.log(chalk.gray('  discode config --server YOUR_SERVER_ID'));
     console.log(chalk.gray('  discode config --default-agent claude'));
+    console.log(chalk.gray('  discode config --platform slack'));
+    console.log(chalk.gray('  discode config --slack-bot-token xoxb-...'));
+    console.log(chalk.gray('  discode config --slack-app-token xapp-...'));
     console.log(chalk.gray('  discode config --opencode-permission allow'));
     console.log(chalk.gray('  discode config --show'));
   }

@@ -1,8 +1,9 @@
 import { createServer } from 'http';
 import { parse } from 'url';
-import { existsSync } from 'fs';
-import { splitForDiscord, extractFilePaths } from '../capture/parser.js';
-import { DiscordClient } from '../discord/client.js';
+import { existsSync, realpathSync } from 'fs';
+import { resolve } from 'path';
+import { splitForDiscord, splitForSlack, extractFilePaths } from '../capture/parser.js';
+import type { MessagingClient } from '../messaging/interface.js';
 import type { IStateManager } from '../types/interfaces.js';
 import {
   getPrimaryInstanceForAgent,
@@ -13,7 +14,7 @@ import { PendingMessageTracker } from './pending-message-tracker.js';
 
 export interface BridgeHookServerDeps {
   port: number;
-  discord: DiscordClient;
+  messaging: MessagingClient;
   stateManager: IStateManager;
   pendingTracker: PendingMessageTracker;
   reloadChannelMappings: () => void;
@@ -119,7 +120,7 @@ export class BridgeHookServer {
     const instance =
       (instanceId ? getProjectInstance(normalizedProject, instanceId) : undefined) ||
       getPrimaryInstanceForAgent(normalizedProject, agentType);
-    const channelId = instance?.discordChannelId;
+    const channelId = instance?.channelId;
     if (!channelId) return false;
 
     const text = this.getEventText(event);
@@ -128,25 +129,42 @@ export class BridgeHookServer {
     );
 
     if (eventType === 'session.error') {
-      await this.deps.pendingTracker.markError(projectName, instance?.agentType || agentType, instance?.instanceId);
+      // Fire reaction update in background – don't block message delivery
+      this.deps.pendingTracker.markError(projectName, instance?.agentType || agentType, instance?.instanceId).catch(() => {});
       const msg = text || 'unknown error';
-      await this.deps.discord.sendToChannel(channelId, `⚠️ OpenCode session error: ${msg}`);
+      await this.deps.messaging.sendToChannel(channelId, `⚠️ OpenCode session error: ${msg}`);
       return true;
     }
 
     if (eventType === 'session.idle') {
-      await this.deps.pendingTracker.markCompleted(projectName, instance?.agentType || agentType, instance?.instanceId);
+      // Fire reaction update in background – don't block message delivery
+      this.deps.pendingTracker.markCompleted(projectName, instance?.agentType || agentType, instance?.instanceId).catch(() => {});
       if (text && text.trim().length > 0) {
         const trimmed = text.trim();
-        const filePaths = extractFilePaths(trimmed).filter((p) => existsSync(p));
+        // Use turnText (all assistant text from the turn) for file path extraction
+        // to handle the race condition where displayText doesn't contain file paths
+        const turnText = typeof event.turnText === 'string' ? event.turnText.trim() : '';
+        const fileSearchText = turnText || trimmed;
+        const projectPath = project.projectPath ? resolve(project.projectPath) : '';
+        const filePaths = extractFilePaths(fileSearchText).filter((p) => {
+          if (!existsSync(p)) return false;
+          if (!projectPath) return false;
+          try {
+            const real = realpathSync(p);
+            return real.startsWith(projectPath + '/') || real === projectPath;
+          } catch {
+            return false;
+          }
+        });
 
-        const chunks = splitForDiscord(trimmed);
+        const split = this.deps.messaging.platform === 'slack' ? splitForSlack : splitForDiscord;
+        const chunks = split(trimmed);
         for (const chunk of chunks) {
-          await this.deps.discord.sendToChannel(channelId, chunk);
+          await this.deps.messaging.sendToChannel(channelId, chunk);
         }
 
         if (filePaths.length > 0) {
-          await this.deps.discord.sendToChannelWithFiles(channelId, '', filePaths);
+          await this.deps.messaging.sendToChannelWithFiles(channelId, '', filePaths);
         }
       }
       return true;

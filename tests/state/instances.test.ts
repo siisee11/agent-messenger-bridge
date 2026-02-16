@@ -27,7 +27,7 @@ describe('state instances helpers', () => {
       expect.objectContaining({
         instanceId: 'gemini',
         agentType: 'gemini',
-        discordChannelId: 'ch-1',
+        channelId: 'ch-1',
         tmuxWindow: 'demo-gemini',
       }),
     );
@@ -45,12 +45,12 @@ describe('state instances helpers', () => {
         gemini: {
           instanceId: 'gemini',
           agentType: 'gemini',
-          discordChannelId: 'ch-1',
+          channelId: 'ch-1',
         },
         'gemini-2': {
           instanceId: 'gemini-2',
           agentType: 'gemini',
-          discordChannelId: 'ch-2',
+          channelId: 'ch-2',
         },
       },
     });

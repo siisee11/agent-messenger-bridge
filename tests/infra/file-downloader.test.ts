@@ -12,9 +12,9 @@ import {
   buildFileMarkers,
   downloadFileAttachments,
 } from '../../src/infra/file-downloader.js';
-import type { DiscordAttachment } from '../../src/types/index.js';
+import type { MessageAttachment } from '../../src/types/index.js';
 
-function makeAttachment(overrides: Partial<DiscordAttachment> = {}): DiscordAttachment {
+function makeAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
   return {
     url: 'https://cdn.discordapp.com/attachments/123/456/test.png',
     filename: 'test.png',

@@ -1,9 +1,9 @@
-import { DiscordClient } from '../discord/client.js';
+import type { MessagingClient } from '../messaging/interface.js';
 
 export class PendingMessageTracker {
   private pendingMessageByInstance: Map<string, { channelId: string; messageId: string }> = new Map();
 
-  constructor(private discord: DiscordClient) {}
+  constructor(private messaging: MessagingClient) {}
 
   private pendingKey(projectName: string, instanceKey: string): string {
     return `${projectName}:${instanceKey}`;
@@ -18,7 +18,7 @@ export class PendingMessageTracker {
   ): Promise<void> {
     const key = this.pendingKey(projectName, instanceId || agentType);
     this.pendingMessageByInstance.set(key, { channelId, messageId });
-    await this.discord.addReactionToMessage(channelId, messageId, '⏳');
+    await this.messaging.addReactionToMessage(channelId, messageId, '⏳');
   }
 
   async markCompleted(projectName: string, agentType: string, instanceId?: string): Promise<void> {
@@ -26,7 +26,7 @@ export class PendingMessageTracker {
     const pending = this.pendingMessageByInstance.get(key);
     if (!pending) return;
 
-    await this.discord.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '✅');
+    await this.messaging.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '✅');
     this.pendingMessageByInstance.delete(key);
   }
 
@@ -35,7 +35,7 @@ export class PendingMessageTracker {
     const pending = this.pendingMessageByInstance.get(key);
     if (!pending) return;
 
-    await this.discord.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '❌');
+    await this.messaging.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '❌');
     this.pendingMessageByInstance.delete(key);
   }
 }

@@ -226,8 +226,8 @@ describe('CLI flow safety (stage 1)', () => {
       agents: { claude: true },
       discordChannels: { claude: 'ch-1' },
       instances: {
-        claude: { instanceId: 'claude', agentType: 'claude', tmuxWindow: 'demo-claude', discordChannelId: 'ch-1' },
-        'claude-2': { instanceId: 'claude-2', agentType: 'claude', tmuxWindow: 'demo-claude-2', discordChannelId: 'ch-2' },
+        claude: { instanceId: 'claude', agentType: 'claude', tmuxWindow: 'demo-claude', channelId: 'ch-1' },
+        'claude-2': { instanceId: 'claude-2', agentType: 'claude', tmuxWindow: 'demo-claude-2', channelId: 'ch-2' },
       },
     };
     mocks.stateManager.getProject.mockReturnValue(project);
@@ -256,8 +256,8 @@ describe('CLI flow safety (stage 1)', () => {
       agents: { claude: true },
       discordChannels: { claude: 'ch-1' },
       instances: {
-        claude: { instanceId: 'claude', agentType: 'claude', tmuxWindow: 'demo-claude', discordChannelId: 'ch-1' },
-        'claude-2': { instanceId: 'claude-2', agentType: 'claude', tmuxWindow: 'demo-claude-2', discordChannelId: 'ch-2' },
+        claude: { instanceId: 'claude', agentType: 'claude', tmuxWindow: 'demo-claude', channelId: 'ch-1' },
+        'claude-2': { instanceId: 'claude-2', agentType: 'claude', tmuxWindow: 'demo-claude-2', channelId: 'ch-2' },
       },
     };
     mocks.stateManager.getProject.mockReturnValue(project);

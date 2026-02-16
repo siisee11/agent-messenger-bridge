@@ -8,7 +8,7 @@
 
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync, statSync } from 'fs';
 import { join, extname } from 'path';
-import type { DiscordAttachment } from '../types/index.js';
+import type { MessageAttachment } from '../types/index.js';
 import { SUPPORTED_FILE_TYPES } from '../types/index.js';
 
 /** Maximum file size to download (25 MB — Discord's limit) */
@@ -32,7 +32,7 @@ export interface DownloadedFile {
 /**
  * Return true if the attachment is a supported file type.
  */
-export function isSupportedFile(attachment: DiscordAttachment): boolean {
+export function isSupportedFile(attachment: MessageAttachment): boolean {
   if (attachment.contentType) {
     return (SUPPORTED_FILE_TYPES as readonly string[]).includes(attachment.contentType);
   }
@@ -57,8 +57,9 @@ export function getFilesDir(projectPath: string): string {
  * Returns an array of successfully downloaded files.
  */
 export async function downloadFileAttachments(
-  attachments: DiscordAttachment[],
+  attachments: MessageAttachment[],
   projectPath: string,
+  fetchHeaders?: Record<string, string>,
 ): Promise<DownloadedFile[]> {
   const fileAttachments = attachments.filter(isSupportedFile);
   if (fileAttachments.length === 0) return [];
@@ -73,7 +74,7 @@ export async function downloadFileAttachments(
     }
 
     try {
-      const response = await fetch(attachment.url);
+      const response = await fetch(attachment.url, fetchHeaders ? { headers: fetchHeaders } : undefined);
       if (!response.ok) {
         console.warn(`Failed to download file ${attachment.filename}: HTTP ${response.status}`);
         continue;

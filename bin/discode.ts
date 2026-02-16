@@ -219,8 +219,17 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
     .command(
       'onboard',
       'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission',
-      (y: Argv) => y.option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' }),
-      async (argv: any) => onboardCommand({ token: argv.token })
+      (y: Argv) => y
+        .option('platform', { type: 'string', choices: ['discord', 'slack'], describe: 'Messaging platform to use' })
+        .option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' })
+        .option('slack-bot-token', { type: 'string', describe: 'Slack bot token (xoxb-...)' })
+        .option('slack-app-token', { type: 'string', describe: 'Slack app-level token (xapp-...)' }),
+      async (argv: any) => onboardCommand({
+        platform: argv.platform,
+        token: argv.token,
+        slackBotToken: argv.slackBotToken,
+        slackAppToken: argv.slackAppToken,
+      })
     )
     .command(
       'setup [token]',
@@ -262,12 +271,15 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
     )
     .command(
       'config',
-      'Configure Discord bridge settings',
+      'Configure bridge settings',
       (y: Argv) => y
-        .option('server', { alias: 's', type: 'string', describe: 'Set Discord server ID' })
+        .option('server', { alias: 's', type: 'string', describe: 'Set Discord server / Slack workspace ID' })
         .option('token', { alias: 't', type: 'string', describe: 'Set Discord bot token' })
         .option('port', { alias: 'p', type: 'string', describe: 'Set hook server port' })
         .option('default-agent', { type: 'string', describe: 'Set default AI CLI for `discode new`' })
+        .option('platform', { type: 'string', choices: ['discord', 'slack'], describe: 'Set messaging platform' })
+        .option('slack-bot-token', { type: 'string', describe: 'Set Slack bot token (xoxb-...)' })
+        .option('slack-app-token', { type: 'string', describe: 'Set Slack app-level token (xapp-...)' })
         .option('opencode-permission', {
           type: 'string',
           choices: ['allow', 'default'],
@@ -282,6 +294,9 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
           port: argv.port,
           defaultAgent: argv.defaultAgent,
           opencodePermission: argv.opencodePermission,
+          platform: argv.platform,
+          slackBotToken: argv.slackBotToken,
+          slackAppToken: argv.slackAppToken,
         })
     )
     .command(

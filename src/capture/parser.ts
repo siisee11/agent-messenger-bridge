@@ -67,13 +67,15 @@ export function stripOuterCodeblock(text: string): string {
 }
 
 /**
- * Split text into chunks for Discord (2000 char limit).
+ * Split text into chunks for a messaging platform.
  * Strips outermost codeblock fence before splitting.
  * When a codeblock is split across chunks, closes it at the end of the
  * current chunk and re-opens it at the start of the next chunk so that
- * Discord renders each chunk correctly.
+ * the platform renders each chunk correctly.
+ *
+ * @param maxLen Default 1900 (Discord-safe). Use 3900 for Slack.
  */
-export function splitForDiscord(text: string, maxLen: number = 1900): string[] {
+export function splitMessages(text: string, maxLen: number = 1900): string[] {
   const stripped = stripOuterCodeblock(text);
   if (stripped.length <= maxLen) return [stripped];
 
@@ -131,6 +133,16 @@ export function splitForDiscord(text: string, maxLen: number = 1900): string[] {
   }
 
   return result;
+}
+
+/** Split text into chunks for Discord (2000 char limit). */
+export function splitForDiscord(text: string, maxLen: number = 1900): string[] {
+  return splitMessages(text, maxLen);
+}
+
+/** Split text into chunks for Slack (40,000 char limit, use 3900 for safety). */
+export function splitForSlack(text: string, maxLen: number = 3900): string[] {
+  return splitMessages(text, maxLen);
 }
 
 /**

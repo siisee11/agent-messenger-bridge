@@ -30,7 +30,7 @@ function normalizeLegacyInstances(project: ProjectState): Record<string, Project
       instanceId: agentType,
       agentType,
       tmuxWindow: project.tmuxWindows?.[agentType],
-      discordChannelId: project.discordChannels?.[agentType],
+      channelId: project.discordChannels?.[agentType],
       eventHook: project.eventHooks?.[agentType],
     };
   }
@@ -54,15 +54,17 @@ function normalizeInstanceMap(project: ProjectState): Record<string, ProjectInst
     const agentType = typeof rawValue.agentType === 'string' ? rawValue.agentType.trim() : '';
     if (!agentType) continue;
 
+    const channelId = typeof rawValue.channelId === 'string' && rawValue.channelId.trim().length > 0
+      ? rawValue.channelId
+      : undefined;
+
     normalized[instanceId] = {
       instanceId,
       agentType,
       tmuxWindow: typeof rawValue.tmuxWindow === 'string' && rawValue.tmuxWindow.trim().length > 0
         ? rawValue.tmuxWindow
         : undefined,
-      discordChannelId: typeof rawValue.discordChannelId === 'string' && rawValue.discordChannelId.trim().length > 0
-        ? rawValue.discordChannelId
-        : undefined,
+      channelId: channelId,
       eventHook: typeof rawValue.eventHook === 'boolean' ? rawValue.eventHook : undefined,
     };
   }
@@ -82,8 +84,8 @@ function deriveLegacyMaps(instances: Record<string, ProjectInstanceState>): Pick
   for (const instance of sorted) {
     agents[instance.agentType] = true;
 
-    if (instance.discordChannelId && discordChannels[instance.agentType] === undefined) {
-      discordChannels[instance.agentType] = instance.discordChannelId;
+    if (instance.channelId && discordChannels[instance.agentType] === undefined) {
+      discordChannels[instance.agentType] = instance.channelId;
     }
     if (instance.tmuxWindow && tmuxWindows[instance.agentType] === undefined) {
       tmuxWindows[instance.agentType] = instance.tmuxWindow;
@@ -136,7 +138,9 @@ export function getPrimaryInstanceForAgent(project: ProjectState, agentType: str
 
 export function findProjectInstanceByChannel(project: ProjectState, channelId: string): ProjectInstanceState | undefined {
   if (!channelId) return undefined;
-  return listProjectInstances(project).find((instance) => instance.discordChannelId === channelId);
+  return listProjectInstances(project).find(
+    (instance) => instance.channelId === channelId,
+  );
 }
 
 export function buildNextInstanceId(project: ProjectState | undefined, agentType: string): string {

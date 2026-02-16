@@ -25,8 +25,18 @@ export interface AgentMessage {
   agentName?: string;
 }
 
+export interface SlackConfig {
+  botToken: string;
+  appToken: string;
+}
+
+export type MessagingPlatform = 'discord' | 'slack';
+
 export interface BridgeConfig {
   discord: DiscordConfig;
+  slack?: SlackConfig;
+  /** Which messaging platform to use. Defaults to 'discord'. */
+  messagingPlatform?: MessagingPlatform;
   tmux: {
     sessionPrefix: string;
     /**
@@ -58,7 +68,8 @@ export interface ProjectInstanceState {
   instanceId: string;
   agentType: string;
   tmuxWindow?: string;
-  discordChannelId?: string;
+  /** Platform-agnostic channel ID (Discord channel ID or Slack channel ID). */
+  channelId?: string;
   eventHook?: boolean;
 }
 
@@ -104,10 +115,10 @@ export interface ProjectState {
 }
 
 /**
- * Represents a Discord message attachment (image, file, etc.)
+ * Platform-agnostic message attachment (image, file, etc.)
  */
-export interface DiscordAttachment {
-  /** Discord CDN URL for the attachment */
+export interface MessageAttachment {
+  /** CDN / download URL for the attachment */
   url: string;
   /** Original filename (e.g. "screenshot.png") */
   filename: string;
@@ -115,6 +126,8 @@ export interface DiscordAttachment {
   contentType: string | null;
   /** File size in bytes */
   size: number;
+  /** Optional auth headers required to download (e.g. Slack Bearer token) */
+  authHeaders?: Record<string, string>;
 }
 
 /** File MIME types that agents can process */

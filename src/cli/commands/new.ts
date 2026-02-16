@@ -35,7 +35,8 @@ export async function newCommand(
     validateConfig();
     const effectiveConfig = applyTmuxCliOverrides(config, options);
 
-    if (!stateManager.getGuildId()) {
+    const isSlack = effectiveConfig.messagingPlatform === 'slack';
+    if (!(isSlack ? stateManager.getWorkspaceId() : stateManager.getGuildId())) {
       console.error(chalk.red('Not set up yet. Run: discode onboard'));
       process.exit(1);
     }
