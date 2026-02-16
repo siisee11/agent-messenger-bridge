@@ -195,6 +195,41 @@ describe('DiscordClient', () => {
     });
   });
 
+  describe('Connect', () => {
+    it('normalizes bot token before login', async () => {
+      const client = new DiscordClient('  "Bot test-token-123"  ');
+      const mockClient = getMockClient();
+
+      const connectPromise = client.connect();
+
+      expect(mockClient.login).toHaveBeenCalledWith('test-token-123');
+
+      const readyHandler = mockClient.once.mock.calls.find(
+        (call: any[]) => call[0] === 'clientReady'
+      )?.[1];
+      expect(readyHandler).toBeDefined();
+      readyHandler();
+
+      await expect(connectPromise).resolves.toBeUndefined();
+    });
+
+    it('returns actionable error for invalid token', async () => {
+      const client = new DiscordClient('test-token');
+      const mockClient = getMockClient();
+      mockClient.login.mockRejectedValueOnce(new Error('An invalid token was provided.'));
+
+      await expect(client.connect()).rejects.toThrow(/invalid bot token/i);
+    });
+
+    it('fails fast when token is empty after normalization', async () => {
+      const client = new DiscordClient('   ');
+      const mockClient = getMockClient();
+
+      await expect(client.connect()).rejects.toThrow(/token is empty/i);
+      expect(mockClient.login).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Lifecycle', () => {
     it('disconnect calls client.destroy', async () => {
       const client = new DiscordClient('test-token');

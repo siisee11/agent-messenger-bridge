@@ -16,6 +16,7 @@ import {
 } from 'discord.js';
 import type { AgentMessage, DiscordAttachment } from '../types/index.js';
 import { agentRegistry as defaultAgentRegistry, type AgentConfig, type AgentRegistry } from '../agents/index.js';
+import { normalizeDiscordToken } from '../config/token.js';
 
 type MessageCallback = (
   agentType: string,
@@ -42,7 +43,7 @@ export class DiscordClient {
   private registry: AgentRegistry;
 
   constructor(token: string, registry?: AgentRegistry) {
-    this.token = token;
+    this.token = normalizeDiscordToken(token);
     this.registry = registry || defaultAgentRegistry;
     this.client = new Client({
       intents: [
@@ -130,6 +131,12 @@ export class DiscordClient {
   }
 
   async connect(): Promise<void> {
+    if (!this.token) {
+      throw new Error(
+        'Discord login failed: bot token is empty. Run `discode config --token <your-token>` or `discode onboard`.'
+      );
+    }
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Discord login timed out after 30 seconds'));
@@ -142,7 +149,16 @@ export class DiscordClient {
 
       this.client.login(this.token).catch((error) => {
         clearTimeout(timeout);
-        reject(new Error(`Discord login failed: ${error.message}`));
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        if (/invalid token/i.test(rawMessage)) {
+          reject(
+            new Error(
+              'Discord login failed: invalid bot token. Run `discode config --token <your-token>` or `discode onboard`.'
+            )
+          );
+          return;
+        }
+        reject(new Error(`Discord login failed: ${rawMessage}`));
       });
     });
   }

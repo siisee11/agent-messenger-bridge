@@ -3,6 +3,7 @@ import { stateManager } from '../../state/index.js';
 import { agentRegistry } from '../../agents/index.js';
 import { DiscordClient } from '../../discord/client.js';
 import { getConfigValue, saveConfig } from '../../config/index.js';
+import { normalizeDiscordToken } from '../../config/token.js';
 import { ensureOpencodePermissionChoice } from '../common/opencode-permission.js';
 import { confirmYesNo, isInteractiveShell, prompt } from '../common/interactive.js';
 
@@ -51,8 +52,8 @@ export async function onboardCommand(options: { token?: string }) {
   try {
     console.log(chalk.cyan('\n🚀 Discode Onboarding\n'));
 
-    const existingToken = getConfigValue('token')?.trim();
-    let token = options.token?.trim();
+    const existingToken = normalizeDiscordToken(getConfigValue('token'));
+    let token = normalizeDiscordToken(options.token);
     if (!token) {
       if (existingToken) {
         if (isInteractiveShell()) {
@@ -78,7 +79,7 @@ export async function onboardCommand(options: { token?: string }) {
       }
 
       if (!token) {
-        token = await prompt(chalk.white('Discord bot token: '));
+        token = normalizeDiscordToken(await prompt(chalk.white('Discord bot token: ')));
       }
       if (!token) {
         console.error(chalk.red('Bot token is required.'));

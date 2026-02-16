@@ -144,6 +144,18 @@ describe('ConfigManager', () => {
       expect(config.discord.token).toBe('stored-token-wins');
       expect(config.discord.guildId).toBe('stored-guild-wins');
     });
+
+    it('normalizes token from stored config and env', () => {
+      const storage = new MockStorage();
+      const env = new MockEnvironment();
+      env.set('DISCORD_BOT_TOKEN', '  Bot env-token-123  ');
+      storage.setFile(configFile, JSON.stringify({ token: '  "Bot stored-token-456"  ' }));
+
+      const manager = new ConfigManager(storage, env, configDir);
+      const config = manager.config;
+
+      expect(config.discord.token).toBe('stored-token-456');
+    });
   });
 
   describe('config persistence', () => {
@@ -165,6 +177,18 @@ describe('ConfigManager', () => {
       const savedData = storage.readFile(configFile, 'utf-8');
       const savedConfig = JSON.parse(savedData);
       expect(savedConfig.token).toBe('new-saved-token');
+    });
+
+    it('saveConfig normalizes token before writing', () => {
+      const storage = new MockStorage();
+      const env = new MockEnvironment();
+      const manager = new ConfigManager(storage, env, configDir);
+
+      manager.saveConfig({ token: '  "Bot test-token-999"  ' });
+
+      const savedData = storage.readFile(configFile, 'utf-8');
+      const savedConfig = JSON.parse(savedData);
+      expect(savedConfig.token).toBe('test-token-999');
     });
 
     it('getConfigValue reads specific key', () => {

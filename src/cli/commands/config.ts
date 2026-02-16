@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { agentRegistry } from '../../agents/index.js';
 import { stateManager } from '../../state/index.js';
 import { config, getConfigPath, saveConfig } from '../../config/index.js';
+import { normalizeDiscordToken } from '../../config/token.js';
 
 export async function configCommand(options: {
   show?: boolean;
@@ -37,8 +38,13 @@ export async function configCommand(options: {
   }
 
   if (options.token) {
-    saveConfig({ token: options.token });
-    console.log(chalk.green(`✅ Bot token saved (****${options.token.slice(-4)})`));
+    const token = normalizeDiscordToken(options.token);
+    if (!token) {
+      console.error(chalk.red('Invalid bot token input.'));
+      process.exit(1);
+    }
+    saveConfig({ token });
+    console.log(chalk.green(`✅ Bot token saved (****${token.slice(-4)})`));
     updated = true;
   }
 

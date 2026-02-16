@@ -8,6 +8,7 @@ import type { BridgeConfig } from '../types/index.js';
 import type { IStorage, IEnvironment } from '../types/interfaces.js';
 import { FileStorage } from '../infra/storage.js';
 import { SystemEnvironment } from '../infra/environment.js';
+import { normalizeDiscordToken } from './token.js';
 
 export interface StoredConfig {
   token?: string;
@@ -41,6 +42,8 @@ export class ConfigManager {
       }
 
       const storedConfig = this.loadStoredConfig();
+      const storedToken = normalizeDiscordToken(storedConfig.token);
+      const envToken = normalizeDiscordToken(this.env.get('DISCORD_BOT_TOKEN'));
       const envPermissionModeRaw = this.env.get('OPENCODE_PERMISSION_MODE');
       const envPermissionMode =
         envPermissionModeRaw === 'allow' || envPermissionModeRaw === 'default'
@@ -52,7 +55,7 @@ export class ConfigManager {
       // Merge: stored config > environment variables > defaults
       this._config = {
         discord: {
-          token: storedConfig.token || this.env.get('DISCORD_BOT_TOKEN') || '',
+          token: storedToken || envToken || '',
           channelId: this.env.get('DISCORD_CHANNEL_ID'),
           guildId: storedConfig.serverId || this.env.get('DISCORD_GUILD_ID'),
         },
@@ -87,8 +90,14 @@ export class ConfigManager {
     if (!this.storage.exists(this.configDir)) {
       this.storage.mkdirp(this.configDir);
     }
+
+    const normalizedUpdates: Partial<StoredConfig> = {
+      ...updates,
+      ...(updates.token !== undefined ? { token: normalizeDiscordToken(updates.token) } : {}),
+    };
+
     const current = this.loadStoredConfig();
-    const newConfig = { ...current, ...updates };
+    const newConfig = { ...current, ...normalizedUpdates };
     this.storage.writeFile(this.configFile, JSON.stringify(newConfig, null, 2));
     this.storage.chmod(this.configFile, 0o600);
 
