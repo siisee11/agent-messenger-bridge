@@ -253,7 +253,7 @@ export function pruneStaleProjects(tmux: TmuxManager, tmuxConfig: BridgeConfig['
 export function ensureProjectTuiPane(
   tmux: TmuxManager,
   sessionName: string,
-  windowName: string,
+  _windowName: string,
   options: TmuxCliOptions,
 ): void {
   const discodeRunner = resolve(import.meta.dirname, '../../../bin/discode.js');
@@ -272,5 +272,5 @@ export function ensureProjectTuiPane(
   if (options.tmuxSharedSessionName) {
     commandParts.push('--tmux-shared-session-name', options.tmuxSharedSessionName);
   }
-  tmux.ensureTuiPane(sessionName, windowName, commandParts);
+  tmux.ensureTuiPane(sessionName, '0', commandParts);
 }
