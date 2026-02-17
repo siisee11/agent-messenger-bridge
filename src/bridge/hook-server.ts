@@ -5,6 +5,8 @@ import { resolve } from 'path';
 import { splitForDiscord, splitForSlack, extractFilePaths, stripFilePaths } from '../capture/parser.js';
 import type { MessagingClient } from '../messaging/interface.js';
 import type { IStateManager } from '../types/interfaces.js';
+import type { AgentRuntime } from '../runtime/interface.js';
+import { RuntimeControlPlane } from '../runtime/control-plane.js';
 import {
   getPrimaryInstanceForAgent,
   getProjectInstance,
@@ -18,34 +20,95 @@ export interface BridgeHookServerDeps {
   stateManager: IStateManager;
   pendingTracker: PendingMessageTracker;
   reloadChannelMappings: () => void;
+  runtime?: AgentRuntime;
 }
 
 export class BridgeHookServer {
   private httpServer?: ReturnType<typeof createServer>;
+  private runtimeControl: RuntimeControlPlane;
 
-  constructor(private deps: BridgeHookServerDeps) {}
+  private static readonly MAX_BODY_BYTES = 256 * 1024;
+
+  constructor(private deps: BridgeHookServerDeps) {
+    this.runtimeControl = new RuntimeControlPlane(deps.runtime);
+  }
 
   start(): void {
     this.httpServer = createServer(async (req, res) => {
+      const parsed = parse(req.url || '', true);
+      const pathname = parsed.pathname;
+
+      if (req.method === 'GET' && pathname === '/runtime/windows') {
+        this.handleRuntimeWindows(res);
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/runtime/buffer') {
+        const windowId = this.readQueryString(parsed.query.windowId);
+        const sinceRaw = this.readQueryString(parsed.query.since);
+        const since = sinceRaw ? parseInt(sinceRaw, 10) : 0;
+        this.handleRuntimeBuffer(res, windowId, Number.isFinite(since) ? since : 0);
+        return;
+      }
+
       if (req.method !== 'POST') {
         res.writeHead(405);
         res.end('Method not allowed');
         return;
       }
 
-      const { pathname } = parse(req.url || '');
-
       let body = '';
+      let aborted = false;
       req.on('data', (chunk) => {
+        if (aborted) return;
         body += chunk.toString('utf8');
+        if (body.length > BridgeHookServer.MAX_BODY_BYTES) {
+          aborted = true;
+          res.writeHead(413);
+          res.end('Payload too large');
+          req.destroy();
+        }
       });
       req.on('end', () => {
+        if (aborted) return;
         void (async () => {
           try {
             if (pathname === '/reload') {
               this.deps.reloadChannelMappings();
               res.writeHead(200);
               res.end('OK');
+              return;
+            }
+
+            if (pathname === '/runtime/focus') {
+              let payload: unknown;
+              try {
+                payload = body ? JSON.parse(body) : {};
+              } catch {
+                res.writeHead(400);
+                res.end('Invalid JSON');
+                return;
+              }
+
+              const result = this.handleRuntimeFocus(payload);
+              res.writeHead(result.status);
+              res.end(result.message);
+              return;
+            }
+
+            if (pathname === '/runtime/input') {
+              let payload: unknown;
+              try {
+                payload = body ? JSON.parse(body) : {};
+              } catch {
+                res.writeHead(400);
+                res.end('Invalid JSON');
+                return;
+              }
+
+              const result = this.handleRuntimeInput(payload);
+              res.writeHead(result.status);
+              res.end(result.message);
               return;
             }
 
@@ -107,6 +170,109 @@ export class BridgeHookServer {
   stop(): void {
     this.httpServer?.close();
     this.httpServer = undefined;
+  }
+
+  private writeJson(res: { writeHead: (status: number, headers?: Record<string, string>) => void; end: (body: string) => void }, status: number, payload: unknown): void {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(payload));
+  }
+
+  private readQueryString(value: string | string[] | undefined): string | undefined {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value) && value.length > 0) return value[0];
+    return undefined;
+  }
+
+  private handleRuntimeWindows(res: { writeHead: (status: number, headers?: Record<string, string>) => void; end: (body: string) => void }): void {
+    if (!this.runtimeControl.isEnabled()) {
+      this.writeJson(res, 501, { error: 'Runtime control unavailable' });
+      return;
+    }
+
+    const result = this.runtimeControl.listWindows();
+    this.writeJson(res, 200, result);
+  }
+
+  private handleRuntimeFocus(payload: unknown): { status: number; message: string } {
+    if (!this.runtimeControl.isEnabled()) {
+      return { status: 501, message: 'Runtime control unavailable' };
+    }
+    if (!payload || typeof payload !== 'object') {
+      return { status: 400, message: 'Invalid payload' };
+    }
+
+    const windowId = typeof (payload as Record<string, unknown>).windowId === 'string'
+      ? ((payload as Record<string, unknown>).windowId as string)
+      : undefined;
+    if (!windowId) {
+      return { status: 400, message: 'Missing windowId' };
+    }
+
+    const focused = this.runtimeControl.focusWindow(windowId);
+    if (!focused) {
+      return { status: 404, message: 'Window not found' };
+    }
+
+    return { status: 200, message: 'OK' };
+  }
+
+  private handleRuntimeInput(payload: unknown): { status: number; message: string } {
+    if (!this.runtimeControl.isEnabled()) {
+      return { status: 501, message: 'Runtime control unavailable' };
+    }
+    if (!payload || typeof payload !== 'object') {
+      return { status: 400, message: 'Invalid payload' };
+    }
+
+    const event = payload as Record<string, unknown>;
+    const windowId = typeof event.windowId === 'string' ? event.windowId : undefined;
+    const text = typeof event.text === 'string' ? event.text : undefined;
+    const submit = typeof event.submit === 'boolean' ? event.submit : undefined;
+
+    if (!windowId && !this.runtimeControl.getActiveWindowId()) {
+      return { status: 400, message: 'Missing windowId' };
+    }
+    if (!text && submit === false) {
+      return { status: 400, message: 'No input to send' };
+    }
+
+    try {
+      this.runtimeControl.sendInput({ windowId, text, submit });
+      return { status: 200, message: 'OK' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Window not found') || message.includes('Invalid windowId')) {
+        return { status: 404, message: 'Window not found' };
+      }
+      return { status: 400, message };
+    }
+  }
+
+  private handleRuntimeBuffer(
+    res: { writeHead: (status: number, headers?: Record<string, string>) => void; end: (body: string) => void },
+    windowId: string | undefined,
+    since: number,
+  ): void {
+    if (!this.runtimeControl.isEnabled()) {
+      this.writeJson(res, 501, { error: 'Runtime control unavailable' });
+      return;
+    }
+    if (!windowId) {
+      this.writeJson(res, 400, { error: 'Missing windowId' });
+      return;
+    }
+
+    try {
+      const result = this.runtimeControl.getBuffer(windowId, since);
+      this.writeJson(res, 200, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Window not found') || message.includes('Invalid windowId')) {
+        this.writeJson(res, 404, { error: 'Window not found' });
+        return;
+      }
+      this.writeJson(res, 400, { error: message });
+    }
   }
 
   /**

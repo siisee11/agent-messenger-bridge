@@ -6,4 +6,16 @@ export interface AgentRuntime {
   sendKeysToWindow(sessionName: string, windowName: string, keys: string, paneHint?: string): void;
   typeKeysToWindow(sessionName: string, windowName: string, keys: string, paneHint?: string): void;
   sendEnterToWindow(sessionName: string, windowName: string, paneHint?: string): void;
+  listWindows?: (sessionName?: string) => Array<{
+    sessionName: string;
+    windowName: string;
+    status?: string;
+    pid?: number;
+    startedAt?: Date;
+    exitedAt?: Date;
+    exitCode?: number | null;
+    signal?: NodeJS.Signals | null;
+  }>;
+  getWindowBuffer?: (sessionName: string, windowName: string) => string;
+  stopWindow?: (sessionName: string, windowName: string, signal?: NodeJS.Signals) => boolean;
 }

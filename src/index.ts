@@ -69,6 +69,7 @@ export class AgentBridge {
       messaging: this.messaging,
       stateManager: this.stateManager,
       pendingTracker: this.pendingTracker,
+      runtime: this.runtime,
       reloadChannelMappings: () => this.projectBootstrap.reloadChannelMappings(),
     });
   }

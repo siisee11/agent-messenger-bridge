@@ -88,7 +88,12 @@ Design rule: bridge modules should only depend on this interface, never directly
 
 ## 5.2 PTY runtime
 
-Add `src/runtime/pty-runtime.ts` using a PTY library (recommended: `node-pty`).
+Add `src/runtime/pty-runtime.ts` as the non-tmux process runtime.
+
+Implementation strategy:
+
+- Phase 2a (current): shell-backed process runtime with window/session registry and ring buffers
+- Phase 2b: swap process backend to true PTY (`node-pty`) when dependency rollout is ready
 
 Responsibilities:
 
@@ -103,6 +108,19 @@ Implementation notes:
 - Use `cwd = projectPath`
 - Inject existing env contract (`AGENT_DISCORD_PROJECT`, `AGENT_DISCORD_PORT`, `AGENT_DISCORD_AGENT`, `AGENT_DISCORD_INSTANCE`)
 - Keep shell command generation from adapters as-is for compatibility
+
+
+## 5.2.1 Progress snapshot
+
+- Completed:
+  - `TmuxRuntime` adapter introduced (`src/runtime/tmux-runtime.ts`)
+  - Bridge and resume flow now depend on `AgentRuntime` instead of direct `TmuxManager` usage
+  - `PtyRuntime` core scaffold implemented (`src/runtime/pty-runtime.ts`)
+  - Runtime unit tests added for tmux adapter and PTY runtime core
+  - Daemon runtime control API endpoints added (`/runtime/windows`, `/runtime/focus`, `/runtime/input`, `/runtime/buffer`)
+- Remaining:
+  - TUI binding to runtime control-plane
+  - Config/runtime-mode switch and CLI behavior migration
 
 
 ## 5.3 Daemon control API
@@ -185,6 +203,14 @@ Migration rule:
 
 
 ## 7) Implementation Plan (Phased)
+
+Status:
+
+- Phase 0: done
+- Phase 1: done
+- Phase 2: in progress
+- Phase 3: in progress
+- Phase 4-6: pending
 
 ## Phase 0 - Freeze spec and interfaces
 
