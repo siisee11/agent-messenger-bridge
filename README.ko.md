@@ -37,6 +37,7 @@ Discode는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Discord에 연결
 - **Discord Bot**: [Discord 봇 설정 가이드](docs/DISCORD_SETUP.ko.md)를 따라 봇 생성
   - 필수 권한: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
   - 필수 인텐트: Guilds, GuildMessages, MessageContent, GuildMessageReactions
+- **Slack (선택)**: Discord 대신 Slack을 사용하려면 [Slack 설정 가이드](docs/SLACK_SETUP.ko.md)를 참고하세요.
 - **AI 에이전트**: 다음 중 하나 이상:
   - [Claude Code](https://code.claude.com/docs/en/overview)
   - [OpenCode](https://github.com/OpenCodeAI/opencode)
@@ -481,3 +482,4 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
 
 - 이슈: [GitHub Issues](https://github.com/siisee11/discode/issues)
 - Discord 봇 설정: [설정 가이드](docs/DISCORD_SETUP.ko.md)
+- Slack 설정: [설정 가이드](docs/SLACK_SETUP.ko.md)

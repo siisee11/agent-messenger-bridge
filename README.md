@@ -61,6 +61,7 @@ Discode runs your AI agent in tmux and simply relays output to Discord - no wrap
 - **Discord Bot**: Create a bot following the [Discord Bot Setup Guide](docs/DISCORD_SETUP.md)
   - Required permissions: Send Messages, Manage Channels, Read Message History, Embed Links, Add Reactions
   - Required intents: Guilds, GuildMessages, MessageContent, GuildMessageReactions
+- **Slack (optional)**: Use Slack instead of Discord by following the [Slack Setup Guide](docs/SLACK_SETUP.md)
 - **AI Agent**: At least one of:
   - [Claude Code](https://code.claude.com/docs/en/overview)
   - [Codex](https://github.com/openai/codex)
@@ -471,3 +472,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - Issues: [GitHub Issues](https://github.com/siisee11/discode/issues)
 - Discord Bot Setup: [Setup Guide](docs/DISCORD_SETUP.md)
+- Slack Setup: [Setup Guide](docs/SLACK_SETUP.md)
