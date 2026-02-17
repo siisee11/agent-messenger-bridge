@@ -12,7 +12,7 @@ type RegisteredAgentAdapter = ReturnType<typeof agentRegistry.getAll>[number];
 
 async function chooseDefaultAgentCli(installedAgents: RegisteredAgentAdapter[]): Promise<string | undefined> {
   if (installedAgents.length === 0) {
-    console.log(chalk.yellow('⚠️ No installed AI CLI detected. Install one of: claude, codex, gemini, opencode.'));
+    console.log(chalk.yellow('⚠️ No installed AI CLI detected. Install one of: claude, gemini, opencode.'));
     return undefined;
   }
 

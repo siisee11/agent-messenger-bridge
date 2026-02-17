@@ -192,21 +192,21 @@ describe('normalizeProjectState', () => {
           tmuxWindow: 'multi-claude',
           eventHook: true,
         },
-        codex: {
-          instanceId: 'codex',
-          agentType: 'codex',
-          channelId: 'ch-codex',
-          tmuxWindow: 'multi-codex',
+        gemini: {
+          instanceId: 'gemini',
+          agentType: 'gemini',
+          channelId: 'ch-gemini',
+          tmuxWindow: 'multi-gemini',
           eventHook: true,
         },
       },
     };
 
     const normalized = normalizeProjectState(project);
-    expect(listProjectAgentTypes(normalized)).toEqual(expect.arrayContaining(['claude', 'codex']));
-    expect(normalized.discordChannels).toEqual({ claude: 'ch-claude', codex: 'ch-codex' });
+    expect(listProjectAgentTypes(normalized)).toEqual(expect.arrayContaining(['claude', 'gemini']));
+    expect(normalized.discordChannels).toEqual({ claude: 'ch-claude', gemini: 'ch-gemini' });
     expect(getPrimaryInstanceForAgent(normalized, 'claude')?.channelId).toBe('ch-claude');
-    expect(getPrimaryInstanceForAgent(normalized, 'codex')?.channelId).toBe('ch-codex');
+    expect(getPrimaryInstanceForAgent(normalized, 'gemini')?.channelId).toBe('ch-gemini');
   });
 
   it('skips instances with empty agentType', () => {

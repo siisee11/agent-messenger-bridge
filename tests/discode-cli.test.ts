@@ -143,10 +143,6 @@ vi.mock('../src/gemini/hook-installer.js', () => ({
   removeGeminiHook: vi.fn().mockReturnValue(true),
 }));
 
-vi.mock('../src/codex/plugin-installer.js', () => ({
-  installCodexHook: vi.fn().mockReturnValue('/tmp/codex-hook.js'),
-}));
-
 vi.mock('child_process', () => ({
   execSync: mocks.execSync,
   spawnSync: mocks.spawnSync,

@@ -1,6 +1,5 @@
 import type { MessagingClient } from '../messaging/interface.js';
 import { TmuxManager } from '../tmux/manager.js';
-import { CodexSubmitter } from '../codex/submitter.js';
 import type { IStateManager } from '../types/interfaces.js';
 import {
   findProjectInstanceByChannel,
@@ -14,7 +13,6 @@ import { PendingMessageTracker } from './pending-message-tracker.js';
 export interface BridgeMessageRouterDeps {
   messaging: MessagingClient;
   tmux: TmuxManager;
-  codexSubmitter: CodexSubmitter;
   stateManager: IStateManager;
   pendingTracker: PendingMessageTracker;
   sanitizeInput: (content: string) => string | null;
@@ -77,17 +75,7 @@ export class BridgeMessageRouter {
       }
 
       try {
-        if (resolvedAgentType === 'codex') {
-          const ok = await this.deps.codexSubmitter.submit(normalizedProject.tmuxSession, windowName, sanitized);
-          if (!ok) {
-            await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
-            await messaging.sendToChannel(
-              channelId,
-              '⚠️ Codex에 메시지를 제출하지 못했습니다. Codex가 busy 상태일 수 있어요.\n' +
-              'tmux로 붙어서 Enter를 한 번 눌러보거나, 잠시 후 다시 보내주세요.'
-            );
-          }
-        } else if (resolvedAgentType === 'opencode') {
+        if (resolvedAgentType === 'opencode') {
           await this.submitToOpencode(normalizedProject.tmuxSession, windowName, sanitized);
         } else {
           this.deps.tmux.sendKeysToWindow(normalizedProject.tmuxSession, windowName, sanitized, resolvedAgentType);

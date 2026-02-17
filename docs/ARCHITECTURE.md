@@ -4,10 +4,10 @@
 
 ## Overview
 
-Discode is a **bridge tool** that connects AI agent CLIs (Claude Code, Codex, Gemini, OpenCode) running in local tmux sessions to Discord or Slack for **remote monitoring and control**.
+Discode is a **bridge tool** that connects AI agent CLIs (Claude Code, Gemini, OpenCode) running in local tmux sessions to Discord or Slack for **remote monitoring and control**.
 
 - Run AI coding agents locally in tmux sessions
-- Stream agent output to dedicated Discord/Slack channels every 30 seconds
+- Stream agent output to dedicated Discord/Slack channels through event hooks
 - Send messages from Discord/Slack back into the agent's tmux session
 - Manage multiple projects simultaneously through a single background daemon
 
@@ -36,17 +36,16 @@ Discode is a **bridge tool** that connects AI agent CLIs (Claude Code, Codex, Ge
 │  │ │ Client    │ │                │ components              │          │
 │  │ └───────────┘ │     ┌─────────┼─────────────┐           │          │
 │  └───────────────┘     ▼         ▼             ▼           │          │
-│  ┌──────────────┐ ┌──────────┐ ┌────────────────┐          │          │
-│  │MessageRouter │ │Capture   │ │HookServer      │          │          │
-│  │              │ │Poller    │ │ :18470 (HTTP)  │          │          │
-│  │Discord→tmux  │ │ 30s poll │ │                │          │          │
-│  │msg routing   │ │ output   │ │ /reload        │          │          │
-│  └──────┬───────┘ └────┬─────┘ │ /send-files    │          │          │
-│         │              │       │ /opencode-event │          │          │
-│         │              │       └───────┬────────┘          │          │
-│         │              │               ▲                    │          │
-│         │              │               │ HTTP POST          │          │
-│         ▼              ▼               │                    │          │
+│  ┌──────────────┐ ┌────────────────┐ ┌────────────────┐     │          │
+│  │MessageRouter │ │Hook Events     │ │HookServer      │     │          │
+│  │Discord→tmux  │ │(agent plugins) │ │ :18470 (HTTP)  │     │          │
+│  │msg routing   │ │                │ │ /reload        │     │          │
+│  └──────┬───────┘ └──────┬─────────┘ │ /send-files    │     │          │
+│         │                │           │ /opencode-event │     │          │
+│         │                │           └───────┬────────┘     │          │
+│         │                │                   ▲               │          │
+│         │                │                   │ HTTP POST     │          │
+│         ▼                ▼                   │               │          │
 │  ┌─────────────────────────────────────┴────────────────────┤          │
 │  │                   TmuxManager                            │          │
 │  │                 (tmux session mgmt)                       │          │
@@ -58,10 +57,10 @@ Discode is a **bridge tool** that connects AI agent CLIs (Claude Code, Codex, Ge
 │                                                             │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐        │
 │  │ window:      │ │ window:      │ │ window:      │  ...   │
-│  │ myapp-claude │ │ myapp-codex  │ │ proj2-gemini │        │
+│  │ myapp-claude │ │ myapp-gemini │ │ proj2-opencode│       │
 │  │              │ │              │ │              │        │
 │  │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │        │
-│  │ │Claude    │ │ │ │Codex     │ │ │ │Gemini    │ │        │
+│  │ │Claude    │ │ │ │Gemini    │ │ │ │OpenCode  │ │        │
 │  │ │Code CLI  │ │ │ │CLI       │ │ │ │CLI       │ │        │
 │  │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │        │
 │  │ ┌──────────┐ │ │              │ │              │        │
@@ -100,7 +99,6 @@ PendingMessageTracker → add ⏳ reaction
 │ Agent-specific delivery method   │
 ├──────────────────────────────────┤
 │ Claude/Gemini : sendKeys         │
-│ Codex         : CodexSubmitter   │
 │ OpenCode      : typeKeys + Enter │
 └──────┬──────────────────────────┘
        │
@@ -110,40 +108,10 @@ Agent receives input in tmux window
 
 ### 2. Agent to Discord/Slack (output capture)
 
-Agent output is captured and sent to Discord/Slack. Two modes are supported:
-
-**Mode A: Polling (default)**
+Agent output is delivered to Discord/Slack via event hooks:
 
 ```
-CapturePoller (every 30s)
-       │
-       ▼
-tmux capture-pane → capture current screen
-       │
-       ▼
-cleanCapture() → strip ANSI codes, trim
-       │
-       ▼
-detectState(current, previous)
-       │
-       ├─ working → still busy, wait
-       │
-       └─ stopped (done) →
-              │
-              ▼
-         splitForDiscord() (split at 1900 chars)
-              │
-              ▼
-         MessagingClient.sendToChannel()
-              │
-              ▼
-         PendingMessageTracker → replace with ✅
-```
-
-**Mode B: Event Hooks (preferred)**
-
-```
-Agent plugin (Claude/OpenCode/Gemini/Codex)
+Agent plugin (Claude/OpenCode/Gemini)
        │
        │ HTTP POST localhost:18470
        ▼
@@ -211,10 +179,9 @@ Split TUI pane + tmux attach
 | **AgentBridge** | `src/index.ts` | Central orchestrator, composes all subsystems |
 | **MessagingClient** | `src/discord/`, `src/slack/` | Bidirectional Discord/Slack communication |
 | **TmuxManager** | `src/tmux/manager.ts` | tmux session/window creation, I/O control |
-| **CapturePoller** | `src/capture/poller.ts` | 30s interval output capture (polling mode) |
 | **BridgeHookServer** | `src/bridge/hook-server.ts` | HTTP server, receives agent plugin events (hook mode) |
 | **BridgeMessageRouter** | `src/bridge/message-router.ts` | Routes Discord messages to correct tmux window |
-| **AgentRegistry** | `src/agents/` | Claude/Codex/Gemini/OpenCode adapters |
+| **AgentRegistry** | `src/agents/` | Claude/Gemini/OpenCode adapters |
 | **StateManager** | `src/state/` | Project state persistence (`state.json`) |
 | **ConfigManager** | `src/config/` | Configuration management (`config.json`) |
 | **TUI** | `bin/tui.tsx` | Solid.js-based interactive terminal UI |
@@ -225,10 +192,8 @@ Split TUI pane + tmux attach
 
 Strategy/Adapter pattern with `BaseAgentAdapter` and concrete implementations for each AI CLI. The `AgentRegistry` manages registration and lookup. Each adapter defines the agent's start command, channel suffix, and installation check.
 
-### `src/capture/` - Output Capture & Polling
+### `src/capture/` - Message Parsing Utilities
 
-- **CapturePoller**: Polls tmux panes at a configurable interval (default 30s). Tracks per-instance state (previous capture, stable count, working status). Detects transitions from `working` to `stopped` and sends final output.
-- **detectState**: Pure function. Determines `offline`, `working`, or `stopped` based on content changes.
 - **parser**: Strips ANSI escape codes, splits messages for Discord (1900 chars) / Slack (3900 chars) limits, extracts/strips file paths.
 
 ### `src/discord/` & `src/slack/` - Messaging Clients
@@ -257,7 +222,7 @@ Loads from `~/.discode/config.json` with env var fallbacks. Config priority: sto
 ### `src/policy/` - Agent Launch & Integration Policies
 
 - **agent-launch**: Builds environment variables and shell export prefixes for agent processes.
-- **agent-integration**: Per-agent plugin/hook installation (Claude plugin dir, OpenCode plugin, Gemini hook, Codex hook). Returns `eventHookInstalled` flag to skip polling when hooks are active.
+- **agent-integration**: Per-agent plugin/hook installation (Claude plugin dir, OpenCode plugin, Gemini hook).
 - **window-naming**: Generates tmux window names like `{projectName}-{agentType}`.
 
 ### `src/infra/` - Infrastructure Abstractions
@@ -289,9 +254,9 @@ All core classes accept interface-based dependencies in constructors (`IStorage`
 
 Agent adapters are registered in `AgentRegistry`. New agents are added by implementing `BaseAgentAdapter` and registering.
 
-### Polling + Event Hooks (Dual Mode)
+### Event Hooks (Single Mode)
 
-Output capture supports polling (30s interval via `CapturePoller`) and event hooks (HTTP POST from agent plugins). When `eventHook=true`, the poller skips that instance.
+Output capture uses event hooks (HTTP POST from agent plugins).
 
 ### Single Daemon, Multiple Projects
 

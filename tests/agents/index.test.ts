@@ -6,9 +6,9 @@ import { createAgentRegistry } from '../../src/agents/index.js';
 import { describe, expect, it } from 'vitest';
 
 describe('createAgentRegistry', () => {
-  it('registers codex adapter', () => {
+  it('registers claude adapter', () => {
     const registry = createAgentRegistry();
-    expect(registry.get('codex')).toBeDefined();
+    expect(registry.get('claude')).toBeDefined();
   });
 
   it('registers gemini adapter', () => {

@@ -6,7 +6,6 @@ const pluginInstallerMocks = vi.hoisted(() => ({
   installOpencodePlugin: vi.fn().mockReturnValue('/mock/opencode/plugin.ts'),
   installClaudePlugin: vi.fn().mockReturnValue('/mock/claude/plugin'),
   installGeminiHook: vi.fn().mockReturnValue('/mock/gemini/hook.js'),
-  installCodexHook: vi.fn().mockReturnValue('/mock/codex/hook.js'),
 }));
 
 vi.mock('../src/opencode/plugin-installer.js', () => ({
@@ -19,10 +18,6 @@ vi.mock('../src/claude/plugin-installer.js', () => ({
 
 vi.mock('../src/gemini/hook-installer.js', () => ({
   installGeminiHook: pluginInstallerMocks.installGeminiHook,
-}));
-
-vi.mock('../src/codex/plugin-installer.js', () => ({
-  installCodexHook: pluginInstallerMocks.installCodexHook,
 }));
 
 import { AgentBridge } from '../src/index.js';
@@ -48,6 +43,8 @@ function createMockStateManager(): IStateManager {
     listProjects: vi.fn().mockReturnValue([]),
     getGuildId: vi.fn().mockReturnValue('guild-123'),
     setGuildId: vi.fn(),
+    getWorkspaceId: vi.fn().mockReturnValue('workspace-123'),
+    setWorkspaceId: vi.fn(),
     updateLastActive: vi.fn(),
     findProjectByChannel: vi.fn(),
     getAgentTypeByChannel: vi.fn(),
@@ -117,7 +114,6 @@ describe('AgentBridge', () => {
     pluginInstallerMocks.installOpencodePlugin.mockClear();
     pluginInstallerMocks.installClaudePlugin.mockClear();
     pluginInstallerMocks.installGeminiHook.mockClear();
-    pluginInstallerMocks.installCodexHook.mockClear();
   });
 
   describe('sanitizeInput', () => {
@@ -347,100 +343,6 @@ describe('AgentBridge', () => {
         .map((c: any[]) => String(c[1] ?? ''))
         .filter((msg) => msg.includes('받은 메시지') || msg.includes('✅ 작업 완료'));
       expect(statusMessages).toHaveLength(0);
-
-      await (bridge as any).markAgentMessageCompleted('test-project', 'claude');
-      expect(mockMessaging.replaceOwnReactionOnMessage).toHaveBeenCalledWith('ch-123', 'msg-1', '⏳', '✅');
-    });
-
-    it('retries Enter for codex if the prompt is not submitted', async () => {
-      // Make retries fast for the unit test
-      process.env.AGENT_DISCORD_SUBMIT_CHECK_DELAY_MS = '0';
-      process.env.AGENT_DISCORD_SUBMIT_RETRY_DELAY_MS = '0';
-      process.env.AGENT_DISCORD_SUBMIT_RETRIES = '2';
-      process.env.AGENT_DISCORD_SUBMIT_DELAY_MS = '0';
-
-      const mockTmux = createMockTmux();
-      bridge = new AgentBridge({
-        messaging: mockMessaging,
-        tmux: mockTmux,
-        stateManager: mockStateManager,
-        registry: createMockRegistry(),
-        config: createMockConfig(),
-      });
-
-      mockStateManager.getProject.mockReturnValue({
-        projectName: 'test-project',
-        projectPath: '/test',
-        tmuxSession: 'agent-test',
-        discordChannels: { codex: 'ch-123' },
-        agents: { codex: true },
-        createdAt: new Date(),
-        lastActive: new Date(),
-      });
-
-      // before, afterSend (not submitted), afterRetry (submitted)
-      mockTmux.capturePaneFromWindow
-        .mockReturnValueOnce('  hello\n')
-        .mockReturnValueOnce('  hello\n')
-        .mockReturnValueOnce('› hello\n');
-
-      await bridge.start();
-      const cb = mockMessaging.onMessage.mock.calls[0][0];
-
-      await cb('codex', 'hello', 'test-project', 'ch-123');
-
-      expect(mockTmux.typeKeysToWindow).toHaveBeenCalledWith('agent-test', 'codex', 'hello', 'codex');
-      expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'codex', 'codex');
-
-      // Should not send failure warning
-      const warningCalls = mockMessaging.sendToChannel.mock.calls
-        .map((c: any[]) => String(c[1] ?? ''))
-        .filter((msg) => msg.includes('Codex에 메시지를 제출하지 못했습니다'));
-      expect(warningCalls).toHaveLength(0);
-    });
-
-    it('treats /command as submitted when typed input disappears (no › echo)', async () => {
-      process.env.AGENT_DISCORD_SUBMIT_CHECK_DELAY_MS = '0';
-      process.env.AGENT_DISCORD_SUBMIT_RETRY_DELAY_MS = '0';
-      process.env.AGENT_DISCORD_SUBMIT_RETRIES = '1';
-      process.env.AGENT_DISCORD_SUBMIT_DELAY_MS = '0';
-
-      const mockTmux = createMockTmux();
-      bridge = new AgentBridge({
-        messaging: mockMessaging,
-        tmux: mockTmux,
-        stateManager: mockStateManager,
-        registry: createMockRegistry(),
-        config: createMockConfig(),
-      });
-
-      mockStateManager.getProject.mockReturnValue({
-        projectName: 'test-project',
-        projectPath: '/test',
-        tmuxSession: 'agent-test',
-        discordChannels: { codex: 'ch-123' },
-        agents: { codex: true },
-        createdAt: new Date(),
-        lastActive: new Date(),
-      });
-
-      // typedCapture contains the command, afterCapture does not (command executed without echo)
-      mockTmux.capturePaneFromWindow
-        .mockReturnValueOnce('  /help\n')
-        .mockReturnValueOnce('Some help output...\n');
-
-      await bridge.start();
-      const cb = mockMessaging.onMessage.mock.calls[0][0];
-
-      await cb('codex', '/help', 'test-project', 'ch-123');
-
-      expect(mockTmux.typeKeysToWindow).toHaveBeenCalledWith('agent-test', 'codex', '/help', 'codex');
-      expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'codex', 'codex');
-
-      const warningCalls = mockMessaging.sendToChannel.mock.calls
-        .map((c: any[]) => String(c[1] ?? ''))
-        .filter((msg) => msg.includes('Codex에 메시지를 제출하지 못했습니다'));
-      expect(warningCalls).toHaveLength(0);
     });
 
     it('submits opencode via type-then-enter with short delay', async () => {
@@ -637,7 +539,7 @@ describe('AgentBridge', () => {
   });
 
   describe('stop', () => {
-    it('stops poller and disconnects messaging client', async () => {
+    it('stops hook server and disconnects messaging client', async () => {
       const mockMessaging = createMockMessaging();
       const bridge = new AgentBridge({
         messaging: mockMessaging,

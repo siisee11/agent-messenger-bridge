@@ -5,7 +5,7 @@
 1. [프로젝트 개요](#1-프로젝트-개요)
 2. [시스템 아키텍처](#2-시스템-아키텍처)
 3. [핵심 모듈 상세](#3-핵심-모듈-상세)
-4. [캡처 폴링 시스템](#4-캡처-폴링-시스템)
+4. [이벤트 훅 처리 시스템](#4-이벤트-훅-처리-시스템)
 5. [에이전트 어댑터 패턴](#5-에이전트-어댑터-패턴)
 6. [데몬 관리](#6-데몬-관리)
 7. [상태 관리 및 설정](#7-상태-관리-및-설정)
@@ -19,7 +19,7 @@
 
 ### 1.1 프로젝트 목적
 
-discode는 AI 에이전트 CLI(Claude Code, OpenCode)의 출력을 Discord로 실시간 브릿징하는 도구입니다. 사용자는 Discord 채널에서 에이전트에게 명령을 보내고, 에이전트의 실행 상태와 결과를 실시간으로 모니터링할 수 있습니다.
+discode는 AI 에이전트 CLI(Claude Code, Gemini, OpenCode)의 출력을 Discord로 실시간 브릿징하는 도구입니다. 사용자는 Discord 채널에서 에이전트에게 명령을 보내고, 에이전트의 실행 상태와 결과를 실시간으로 모니터링할 수 있습니다.
 
 ### 1.2 해결하는 문제
 
@@ -130,20 +130,11 @@ Agent CLI receives input and processes
 #### 2.2.2 Agent → Discord (상태 모니터링)
 
 ```
-CapturePoller (30초 주기)
+Agent plugin/hook (이벤트 발생)
     ↓
-tmux.capturePaneFromWindow(sessionName, agentType)
+HTTP POST localhost:18470/opencode-event
     ↓
-cleanCapture() - ANSI 코드 제거
-    ↓
-detectState(current, previous, stableCount)
-    ↓
-상태에 따라 Discord 메시지 생성:
-  • working: "⚡ 작업 중..."
-  • stopped: "💬 **완료**\n```\n[최종 출력]\n```"
-  • offline: "⏹️ 세션 종료됨"
-    ↓
-splitForDiscord() - 2000자 제한으로 분할
+BridgeHookServer.handleOpencodeEvent()
     ↓
 discord.sendToChannel(channelId, message)
 ```
@@ -154,7 +145,7 @@ discord.sendToChannel(channelId, message)
 |---------|------|
 | **DiscordClient** | Discord API 관리, 메시지 송수신 |
 | **TmuxManager** | tmux 세션/윈도우 제어, 입출력 처리 |
-| **CapturePoller** | 주기적 상태 감지 및 알림 |
+| **BridgeHookServer** | 에이전트 훅 이벤트 수신 및 중계 |
 | **AgentRegistry** | 에이전트 어댑터 관리 |
 | **StateManager** | 프로젝트 상태 영속화 |
 | **DaemonManager** | 백그라운드 프로세스 관리 |
@@ -259,70 +250,20 @@ child_process (Node.js)
 ### 3.3 capture/ 모듈
 
 #### 역할
-tmux 출력을 주기적으로 캡처하여 상태를 감지하고 Discord에 알림
+메시지 파싱/분할 유틸리티 제공
 
 #### 주요 컴포넌트
 
-##### 3.3.1 CapturePoller (poller.ts)
+##### 3.3.1 parser.ts
 
 ```typescript
-class CapturePoller {
-  private states: Map<string, PollState>  // 프로젝트별 상태
-  private timer?: ReturnType<typeof setInterval>
-
-  start(): void                           // 30초 주기 폴링 시작
-  stop(): void                            // 폴링 중지
-  private pollAll(): Promise<void>        // 모든 에이전트 폴링
-  private pollAgent(project, agentType)   // 개별 에이전트 폴링
-}
-
-interface PollState {
-  previousCapture: string | null     // 이전 캡처 내용
-  lastReportedCapture: string | null // 마지막 보고된 내용
-  stableCount: number                // 변화 없는 폴링 횟수
-  notifiedWorking: boolean           // "작업 중" 알림 전송 여부
-}
+function stripAnsi(text: string): string
+function cleanCapture(text: string): string
+function splitForDiscord(text: string, maxLen = 1900): string[]
+function splitForSlack(text: string, maxLen = 3900): string[]
 ```
 
-##### 3.3.2 상태 감지 로직
-
-```typescript
-// detector.ts
-type AgentState = 'working' | 'stopped' | 'offline'
-
-function detectState(
-  current: string | null,    // 현재 캡처
-  previous: string | null,   // 이전 캡처
-  stableCount: number
-): AgentState {
-  if (current === null) return 'offline'      // 세션 없음
-  if (previous === null) return 'working'     // 첫 캡처
-  if (current !== previous) return 'working'  // 내용 변함
-  return 'stopped'                            // 내용 동일
-}
-```
-
-**상태 머신:**
-
-```
-┌─────────────┐
-│   offline   │  (세션/윈도우 없음)
-└─────────────┘
-       ↑
-       │ 세션 생성
-       │
-    ┌──▼──────┐
-    │ working │ ◄──┐ 내용 변함
-    └──┬──────┘   │
-       │          │
-       │ 내용 안 바뀜 (1회)
-       │          │
-    ┌──▼──────┐   │
-    │ stopped │ ──┘ 내용 또 변함
-    └─────────┘
-```
-
-##### 3.3.3 ANSI 파싱 및 메시지 분할
+##### 3.3.2 ANSI 파싱 및 메시지 분할
 
 ```typescript
 // parser.ts
@@ -367,8 +308,8 @@ export abstract class BaseAgentAdapter {
 }
 
 export interface AgentConfig {
-  name: string           // 'claude', 'opencode', 'codex'
-  displayName: string    // 'Claude Code', 'OpenCode', 'Codex CLI'
+  name: string           // 'claude', 'gemini', 'opencode'
+  displayName: string    // 'Claude Code', 'Gemini CLI', 'OpenCode'
   command: string        // 실행 명령어
   channelSuffix: string  // 채널명 접미사
 }
@@ -440,7 +381,7 @@ class AgentRegistry {
    agentRegistry.register(newagentAdapter)
    ```
 
-**참고**: Codex CLI 지원은 제거되었습니다. Claude Code와 OpenCode만 지원합니다.
+**참고**: 현재는 Claude Code, Gemini, OpenCode를 지원합니다.
 
 ---
 
@@ -599,127 +540,39 @@ class DaemonManager {
 
 ---
 
-## 4. 캡처 폴링 시스템
+## 4. 이벤트 훅 처리 시스템
 
-### 4.1 폴링 주기
+### 4.1 기본 흐름
 
 ```
 Start
  ↓
-pollAll() 즉시 실행
+Agent CLI가 훅 이벤트 발생
  ↓
-setInterval(pollAll, 30000) 시작 (30초마다)
+BridgeHookServer가 HTTP 이벤트 수신
  ↓
-각 프로젝트의 활성화된 에이전트 폴링
+splitForDiscord()/splitForSlack() 적용
+ ↓
+MessagingClient로 채널 전송
+ ↓
+Pending reaction 갱신 (⏳ → ✅/❌)
 ```
 
-### 4.2 상태 변화 감지
+### 4.2 파일 전송
 
 ```
-Poll Cycle 1: previousCapture = null, current = "..."
-  → detectState(...) = 'working'
-  → "⚡ 작업 중..." 전송
-  → notifiedWorking = true
-
-Poll Cycle 2: previousCapture = "...", current = "... more output"
-  → detectState(...) = 'working'
-  → 이미 notifiedWorking이므로 무시
-
-Poll Cycle 3: previousCapture = "... more", current = "... more"
-  → detectState(...) = 'stopped'
-  → stableCount = 1
-  → state.notifiedWorking = true이고 stableCount = 1
-  → 최종 출력 전송: "💬 **완료**\n```\n[출력]\n```"
-  → notifiedWorking = false
-
-Poll Cycle 4: previousCapture = "...", current = "..."
-  → detectState(...) = 'stopped'
-  → stableCount = 2
-  → notifiedWorking = false이므로 무시
+agent plugin 또는 discode-send
+  ↓
+POST /send-files
+  ↓
+프로젝트 경로 검증
+  ↓
+sendToChannelWithFiles()
 ```
 
-### 4.3 알림 로직
+### 4.3 메시지 크기 제한 처리
 
-```typescript
-// poller.ts - pollAgent 함수
-
-if (agentState === 'working') {
-  // 내용이 변함 → 에이전트가 작업 중
-  state.stableCount = 0
-  state.previousCapture = capture
-
-  if (!state.notifiedWorking) {
-    await this.send(channelId, '⚡ 작업 중...')
-    state.notifiedWorking = true
-  }
-  return
-}
-
-// 내용이 안 바뀜 → 안정화
-state.stableCount++
-state.previousCapture = capture
-
-if (state.stableCount === 1 && state.notifiedWorking) {
-  // 방금 안정화됨 (작업 중 → 완료)
-  const content = capture.trim()
-
-  if (content && content !== state.lastReportedCapture) {
-    const chunks = splitForDiscord(`💬 **완료**\n\`\`\`\n${content}\n\`\`\``)
-    for (const chunk of chunks) {
-      await this.send(channelId, chunk)
-    }
-  } else {
-    await this.send(channelId, '✅ 작업 완료')
-  }
-
-  state.lastReportedCapture = capture
-  state.notifiedWorking = false
-}
-```
-
-### 4.4 ANSI 파싱
-
-터미널 색상/포맷 코드 제거:
-
-```typescript
-const ANSI_REGEX = /\x1B(?:\[[0-9;]*[A-Za-z]|\].*?(?:\x07|\x1B\\)|\([A-Z])/g
-
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_REGEX, '')
-}
-```
-
-예시:
-```
-입력:  "\x1B[32m✓ Success\x1B[0m"
-출력:  "✓ Success"
-```
-
-### 4.5 메시지 분할
-
-Discord 메시지는 최대 2000자 제한:
-
-```typescript
-function splitForDiscord(text: string, maxLen = 1900): string[] {
-  if (text.length <= maxLen) return [text]
-
-  const chunks: string[] = []
-  const lines = text.split('\n')
-  let current = ''
-
-  for (const line of lines) {
-    if (current.length + line.length + 1 > maxLen) {
-      if (current) chunks.push(current)
-      current = line
-    } else {
-      current += (current ? '\n' : '') + line
-    }
-  }
-  if (current) chunks.push(current)
-
-  return chunks
-}
-```
+Discord/Slack 제한에 맞춰 메시지를 분할하고, 코드블록 경계를 보정합니다.
 
 ---
 
@@ -847,8 +700,8 @@ agentRegistry.parseChannelName("ml-work-opencode")
 │                                          │
 │  Manages ALL projects:                   │
 │  • Project A (Claude)                    │
-│  • Project B (OpenCode)                  │
-│  • Project C (Codex)                     │
+│  • Project B (Gemini)                    │
+│  • Project C (OpenCode)                  │
 │  • ...                                   │
 └──────────────────────────────────────────┘
 
@@ -980,14 +833,14 @@ interface ProjectState {
 
   discordChannels: {         // agentType → Discord channel ID
     claude: "1234567890"
+    // gemini: undefined (미사용)
     // opencode: undefined (미사용)
-    // codex: undefined (미사용)
   }
 
   agents: {                  // agentType → enabled flag
     claude: true
+    gemini: false
     opencode: false
-    codex: false
   }
 
   createdAt: Date            // "2024-02-06T20:00:00Z"
@@ -1285,8 +1138,6 @@ discode/
 │   │
 │   ├── capture/
 │   │   ├── index.ts              # 모듈 export
-│   │   ├── poller.ts             # CapturePoller (30초 폴링)
-│   │   ├── detector.ts           # detectState (상태 감지)
 │   │   └── parser.ts             # ANSI 제거, 메시지 분할
 │   │
 │   ├── discord/
@@ -1329,8 +1180,6 @@ discode/
 | `bin/discode.ts` | CLI 명령어 처리 | ~690 |
 | `src/index.ts` | AgentBridge 클래스 (메인 로직) | ~244 |
 | `src/daemon.ts` | 글로벌 데몬 관리 | ~126 |
-| `src/capture/poller.ts` | 30초 폴링 루프 | ~137 |
-| `src/capture/detector.ts` | 상태 감지 | ~24 |
 | `src/capture/parser.ts` | ANSI 파싱, 메시지 분할 | ~50 |
 | `src/discord/client.ts` | Discord.js 래핑 | ~423 |
 | `src/tmux/manager.ts` | tmux 제어 | ~201 |

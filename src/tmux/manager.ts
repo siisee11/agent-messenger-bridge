@@ -12,12 +12,11 @@ const TUI_PANE_COMMAND_MARKERS = ['discode.js tui', 'discode tui'];
 const TUI_PANE_MAX_WIDTH = 80;
 const TUI_PANE_DELAY_SECONDS = 0.35;
 
-type AgentPaneHint = 'opencode' | 'claude' | 'codex' | 'gemini';
+type AgentPaneHint = 'opencode' | 'claude' | 'gemini';
 
 const AGENT_PANE_MARKERS: Record<AgentPaneHint, string[]> = {
   opencode: ['opencode'],
   claude: ['claude'],
-  codex: ['codex'],
   gemini: ['gemini'],
 };
 
@@ -247,7 +246,7 @@ export class TmuxManager {
   /**
    * Resolve a tmux target for a window.
    *
-   * If caller already provides an explicit pane target (e.g. `codex.1`), keep it.
+   * If caller already provides an explicit pane target (e.g. `gemini.1`), keep it.
    * Otherwise, resolve the lowest existing pane index for the target window.
    * This avoids active-pane drift while also working when tmux pane-base-index is 1.
    */
@@ -299,7 +298,6 @@ export class TmuxManager {
     const normalized = targetHint.trim().toLowerCase();
     if (normalized.length === 0) return null;
     if (/\bopencode\b/.test(normalized)) return 'opencode';
-    if (/\bcodex\b/.test(normalized)) return 'codex';
     if (/\bclaude\b/.test(normalized)) return 'claude';
     if (/\bgemini\b/.test(normalized)) return 'gemini';
     return null;
@@ -490,7 +488,7 @@ export class TmuxManager {
 
   /**
    * Type keys into a specific window without pressing Enter.
-   * Useful when we want to control submission separately (e.g., Codex retries).
+   * Useful when we want to control submission separately.
    */
   typeKeysToWindow(sessionName: string, windowName: string, keys: string, paneHint?: string): void {
     const target = this.resolveWindowTarget(sessionName, windowName, paneHint);

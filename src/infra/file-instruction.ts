@@ -13,9 +13,6 @@
  *     user's own CLAUDE.md.
  *   - OpenCode: Appends an instruction block to `.opencode/instructions.md`
  *     in the project directory (OpenCode reads this automatically).
- *   - Codex: Appends an instruction block to `AGENTS.md` at the project
- *     root (Codex reads AGENTS.md files at each directory level along
- *     the tree, but NOT inside `.codex/` subdirectories).
  *   - Generic: Places a `.discode/FILE_INSTRUCTIONS.md` that the agent
  *     can discover via file listing or be told about.
  */
@@ -174,26 +171,6 @@ export function installFileInstructionForOpencode(projectPath: string): void {
 }
 
 /**
- * Install file instructions for Codex.
- *
- * Codex reads AGENTS.md at each directory level along the path from the
- * git root to the working directory.  It does NOT look inside `.codex/`
- * subdirectories, so we must write to `{projectPath}/AGENTS.md` directly.
- * This file may contain user content, so we replace only the discode section.
- */
-export function installFileInstructionForCodex(projectPath: string): void {
-  const agentsMdPath = join(projectPath, 'AGENTS.md');
-  const instruction = getFileInstructionText(projectPath);
-
-  if (existsSync(agentsMdPath)) {
-    const existing = readFileSync(agentsMdPath, 'utf-8');
-    writeFileSync(agentsMdPath, replaceOrAppendSection(existing, instruction), 'utf-8');
-  } else {
-    writeFileSync(agentsMdPath, instruction, 'utf-8');
-  }
-}
-
-/**
  * Install file instructions for any generic agent.
  *
  * Places the instructions at `{projectPath}/.discode/FILE_INSTRUCTIONS.md`
@@ -220,9 +197,6 @@ export function installFileInstruction(projectPath: string, agentType: string): 
       break;
     case 'opencode':
       installFileInstructionForOpencode(projectPath);
-      break;
-    case 'codex':
-      installFileInstructionForCodex(projectPath);
       break;
     default:
       installFileInstructionGeneric(projectPath);

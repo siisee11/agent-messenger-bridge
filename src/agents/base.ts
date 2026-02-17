@@ -48,7 +48,7 @@ export abstract class BaseAgentAdapter {
   }
 }
 
-export type AgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | string;
+export type AgentType = 'claude' | 'gemini' | 'opencode' | string;
 
 /**
  * Registry for all available agent adapters

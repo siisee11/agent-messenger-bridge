@@ -94,7 +94,7 @@ describe('ConfigManager', () => {
         channelId: 'stored-channel-123',
         serverId: 'stored-guild-456',
         hookServerPort: 9999,
-        defaultAgentCli: 'codex',
+        defaultAgentCli: 'gemini',
         opencodePermissionMode: 'allow',
       };
       storage.setFile(configFile, JSON.stringify(storedConfig));
@@ -106,7 +106,7 @@ describe('ConfigManager', () => {
       expect(config.discord.channelId).toBe('stored-channel-123');
       expect(config.discord.guildId).toBe('stored-guild-456');
       expect(config.hookServerPort).toBe(9999);
-      expect(config.defaultAgentCli).toBe('codex');
+      expect(config.defaultAgentCli).toBe('gemini');
       expect(config.opencode?.permissionMode).toBe('allow');
     });
 

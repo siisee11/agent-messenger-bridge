@@ -91,8 +91,8 @@ export interface ProjectState {
    * Optional mapping from agentType -> tmux window target.
    *
    * Examples:
-   * - `codex` (window name; manager will target pane `.0`)
-   * - `codex.1` (explicit pane target)
+   * - `gemini` (window name; manager will target pane `.0`)
+   * - `gemini.1` (explicit pane target)
    *
    * If omitted, agentType is treated as the window name (legacy behavior).
    */
@@ -101,7 +101,7 @@ export interface ProjectState {
   };
   /**
    * Optional mapping from agentType -> whether outbound Discord messages are
-   * delivered by agent-native event hooks instead of tmux capture polling.
+   * delivered by agent-native event hooks.
    */
   eventHooks?: {
     [agentType: string]: boolean | undefined;

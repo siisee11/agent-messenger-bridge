@@ -9,8 +9,6 @@ import { TmuxManager } from './tmux/manager.js';
 import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
-import { CapturePoller } from './capture/index.js';
-import { CodexSubmitter } from './codex/submitter.js';
 import type { ProjectAgents } from './types/index.js';
 import type { IStateManager } from './types/interfaces.js';
 import type { BridgeConfig } from './types/index.js';
@@ -32,7 +30,6 @@ import { BridgeHookServer } from './bridge/hook-server.js';
 export interface AgentBridgeDeps {
   messaging?: MessagingClient;
   tmux?: TmuxManager;
-  codexSubmitter?: CodexSubmitter;
   stateManager?: IStateManager;
   registry?: AgentRegistry;
   config?: BridgeConfig;
@@ -41,8 +38,6 @@ export interface AgentBridgeDeps {
 export class AgentBridge {
   private messaging: MessagingClient;
   private tmux: TmuxManager;
-  private codexSubmitter: CodexSubmitter;
-  private poller: CapturePoller;
   private pendingTracker: PendingMessageTracker;
   private projectBootstrap: BridgeProjectBootstrap;
   private messageRouter: BridgeMessageRouter;
@@ -57,13 +52,11 @@ export class AgentBridge {
     this.tmux = deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
-    this.codexSubmitter = deps?.codexSubmitter || new CodexSubmitter(this.tmux);
     this.pendingTracker = new PendingMessageTracker(this.messaging);
     this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.messaging, this.bridgeConfig.hookServerPort || 18470);
     this.messageRouter = new BridgeMessageRouter({
       messaging: this.messaging,
       tmux: this.tmux,
-      codexSubmitter: this.codexSubmitter,
       stateManager: this.stateManager,
       pendingTracker: this.pendingTracker,
       sanitizeInput: (content) => this.sanitizeInput(content),
@@ -74,14 +67,6 @@ export class AgentBridge {
       stateManager: this.stateManager,
       pendingTracker: this.pendingTracker,
       reloadChannelMappings: () => this.projectBootstrap.reloadChannelMappings(),
-    });
-    this.poller = new CapturePoller(this.tmux, this.messaging, 30000, this.stateManager, {
-      onAgentComplete: async (projectName, agentType, instanceId) => {
-        await this.markAgentMessageCompleted(projectName, agentType, instanceId);
-      },
-      onAgentStopped: async (projectName, agentType, instanceId) => {
-        await this.markAgentMessageError(projectName, agentType, instanceId);
-      },
     });
   }
 
@@ -131,7 +116,6 @@ export class AgentBridge {
     this.projectBootstrap.bootstrapProjects();
     this.messageRouter.register();
     this.hookServer.start();
-    this.poller.start();
 
     console.log('✅ Discode is running');
     console.log(`📡 Server listening on port ${this.bridgeConfig.hookServerPort || 18470}`);
@@ -267,16 +251,7 @@ export class AgentBridge {
     };
   }
 
-  private async markAgentMessageCompleted(projectName: string, agentType: string, instanceId?: string): Promise<void> {
-    await this.pendingTracker.markCompleted(projectName, agentType, instanceId);
-  }
-
-  private async markAgentMessageError(projectName: string, agentType: string, instanceId?: string): Promise<void> {
-    await this.pendingTracker.markError(projectName, agentType, instanceId);
-  }
-
   async stop(): Promise<void> {
-    this.poller.stop();
     this.hookServer.stop();
     await this.messaging.disconnect();
   }

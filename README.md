@@ -34,9 +34,9 @@ Discode runs your AI agent in tmux and simply relays output to Discord - no wrap
 
 ## Features
 
-- **Multi-Agent Support**: Works with Claude Code, Codex, and OpenCode
+- **Multi-Agent Support**: Works with Claude Code, Gemini CLI, and OpenCode
 - **Auto-Discovery**: Automatically detects installed AI agents on your system
-- **Real-Time Streaming**: Captures tmux output and streams to Discord every 30 seconds
+- **Real-Time Streaming**: Sends agent outputs to Discord/Slack through event hooks
 - **Project Isolation**: Each project gets a dedicated Discord channel
 - **Single Daemon**: One Discord bot connection manages all projects
 - **Session Management**: Persistent tmux sessions survive disconnections
@@ -64,7 +64,7 @@ Discode runs your AI agent in tmux and simply relays output to Discord - no wrap
 - **Slack (optional)**: Use Slack instead of Discord by following the [Slack Setup Guide](docs/SLACK_SETUP.md)
 - **AI Agent**: At least one of:
   - [Claude Code](https://code.claude.com/docs/en/overview)
-  - [Codex](https://github.com/openai/codex)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
   - [OpenCode](https://github.com/OpenCodeAI/opencode)
 
 ## Installation
@@ -144,7 +144,7 @@ discode new
 discode new claude        # Specify an agent explicitly
 ```
 
-Your AI agent is now running in tmux, with output streaming to Discord every 30 seconds.
+Your AI agent is now running in tmux, with output delivered to Discord/Slack in real time through hooks.
 
 ## CLI Reference
 
@@ -271,8 +271,10 @@ discode new --no-attach  # Start without attaching to tmux
 | Agent | Binary | Auto-Detect | Notes |
 |-------|--------|-------------|-------|
 | **Claude Code** | `claude` | Yes | Official Anthropic CLI |
-| **Codex** | `codex` | Yes | OpenAI Codex CLI |
+| **Gemini CLI** | `gemini` | Yes | Google Gemini CLI |
 | **OpenCode** | `opencode` | Yes | Open-source alternative |
+
+> Note: Codex support is temporarily removed and will be restored once Codex provides hook support. Tracking discussion: https://github.com/openai/codex/discussions/2150
 
 ### Agent Detection
 
@@ -362,7 +364,7 @@ Test suite includes 129 tests covering:
 - Agent adapters
 - State management
 - Discord client
-- Capture polling
+- Hook-based event delivery
 - CLI commands
 - Storage and execution mocks
 
@@ -372,8 +374,8 @@ Test suite includes 129 tests covering:
 discode/
 ├── bin/                  # CLI entry point (discode)
 ├── src/
-│   ├── agents/           # Agent adapters (Claude, Codex, OpenCode)
-│   ├── capture/          # tmux capture, polling, state detection
+│   ├── agents/           # Agent adapters (Claude, Gemini, OpenCode)
+│   ├── capture/          # shared message parsing utilities
 │   ├── config/           # Configuration management
 │   ├── discord/          # Discord client and message handlers
 │   ├── infra/            # Infrastructure (storage, shell, environment)
@@ -466,7 +468,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Acknowledgments
 
 - Built with [Discord.js](https://discord.js.org/)
-- Powered by [Claude Code](https://code.claude.com/docs/en/overview), [Codex](https://github.com/openai/codex), and [OpenCode](https://github.com/OpenCodeAI/opencode)
+- Powered by [Claude Code](https://code.claude.com/docs/en/overview), [Gemini CLI](https://github.com/google-gemini/gemini-cli), and [OpenCode](https://github.com/OpenCodeAI/opencode)
 - Inspired by [OpenClaw](https://github.com/nicepkg/openclaw)'s messenger-based command system. The motivation was to remotely control and monitor long-running AI agent tasks from anywhere via Discord.
 
 ## Support

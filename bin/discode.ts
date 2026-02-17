@@ -257,7 +257,7 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       'new [agent]',
       'Quick start: launch daemon, setup project, attach tmux',
       (y: Argv) => addTmuxOptions(y)
-        .positional('agent', { type: 'string', describe: 'Agent to use (claude, codex, gemini, opencode)' })
+        .positional('agent', { type: 'string', describe: 'Agent to use (claude, gemini, opencode)' })
         .option('name', { alias: 'n', type: 'string', describe: 'Project name (defaults to directory name)' })
         .option('instance', { type: 'string', describe: 'Agent instance ID (e.g. gemini-2)' })
         .option('attach', { type: 'boolean', default: true, describe: 'Attach to tmux session after setup' }),

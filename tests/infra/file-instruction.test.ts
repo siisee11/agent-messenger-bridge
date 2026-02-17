@@ -10,7 +10,6 @@ import {
   getFileInstructionText,
   installFileInstructionForClaude,
   installFileInstructionForOpencode,
-  installFileInstructionForCodex,
   installFileInstructionGeneric,
   installFileInstruction,
 } from '../../src/infra/file-instruction.js';
@@ -235,66 +234,6 @@ describe('installFileInstructionForOpencode', () => {
   });
 });
 
-describe('installFileInstructionForCodex', () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = join(tmpdir(), `discode-codex-instr-${Date.now()}`);
-    mkdirSync(tempDir, { recursive: true });
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('creates AGENTS.md at project root with instruction', () => {
-    installFileInstructionForCodex(tempDir);
-
-    const agentsMdPath = join(tempDir, 'AGENTS.md');
-    expect(existsSync(agentsMdPath)).toBe(true);
-
-    const content = readFileSync(agentsMdPath, 'utf-8');
-    expect(content).toContain('<!-- discode:file-instructions -->');
-    expect(content).toContain(`${tempDir}/.discode/files/`);
-    expect(content).toContain('shared file workspace');
-  });
-
-  it('replaces the discode section on re-install (preserves user content)', () => {
-    writeFileSync(
-      join(tempDir, 'AGENTS.md'),
-      '# Project rules\n\n<!-- discode:file-instructions -->\nold content\n<!-- /discode:file-instructions -->\n\n# Footer\n',
-      'utf-8',
-    );
-
-    installFileInstructionForCodex(tempDir);
-
-    const content = readFileSync(join(tempDir, 'AGENTS.md'), 'utf-8');
-    expect(content).toContain('# Project rules');
-    expect(content).toContain('# Footer');
-    expect(content).toContain('discode-send');
-    expect(content).not.toContain('old content');
-  });
-
-  it('does not duplicate markers on repeated installs', () => {
-    installFileInstructionForCodex(tempDir);
-    installFileInstructionForCodex(tempDir);
-
-    const content = readFileSync(join(tempDir, 'AGENTS.md'), 'utf-8');
-    const markerCount = (content.match(/<!-- discode:file-instructions -->/g) || []).length;
-    expect(markerCount).toBe(1);
-  });
-
-  it('appends to existing AGENTS.md without marker', () => {
-    writeFileSync(join(tempDir, 'AGENTS.md'), '# Project rules\n', 'utf-8');
-
-    installFileInstructionForCodex(tempDir);
-
-    const content = readFileSync(join(tempDir, 'AGENTS.md'), 'utf-8');
-    expect(content).toContain('# Project rules');
-    expect(content).toContain('<!-- discode:file-instructions -->');
-  });
-});
-
 describe('installFileInstructionGeneric', () => {
   let tempDir: string;
 
@@ -347,11 +286,6 @@ describe('installFileInstruction', () => {
   it('dispatches to opencode handler for agent type "opencode"', () => {
     installFileInstruction(tempDir, 'opencode');
     expect(existsSync(join(tempDir, '.opencode', 'instructions.md'))).toBe(true);
-  });
-
-  it('dispatches to codex handler for agent type "codex"', () => {
-    installFileInstruction(tempDir, 'codex');
-    expect(existsSync(join(tempDir, 'AGENTS.md'))).toBe(true);
   });
 
   it('dispatches to generic handler for unknown agent types', () => {

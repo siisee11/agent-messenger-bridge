@@ -270,7 +270,7 @@ describe('TmuxManager', () => {
     });
 
     it('avoids sending keys to the discode tui pane', () => {
-      executor.nextResult = '0\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tcodex\tcodex';
+      executor.nextResult = '0\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tgemini\tgemini';
       tmux.sendKeysToWindow('agent-session', 'window1', 'echo hello');
 
       expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:window1.1'");
@@ -278,11 +278,11 @@ describe('TmuxManager', () => {
 
     it('routes to pane matching agent hint in target name', () => {
       executor.nextResult =
-        '0\topencode\topencode\n1\tclaude\tclaude\n2\tcodex\tcodex\n3\tdiscode-tui\tbun /repo/dist/bin/discode.js tui';
-      tmux.sendKeysToWindow('agent-session', 'myproj-codex', 'echo hello');
+        '0\topencode\topencode\n1\tclaude\tclaude\n2\tgemini\tgemini\n3\tdiscode-tui\tbun /repo/dist/bin/discode.js tui';
+      tmux.sendKeysToWindow('agent-session', 'myproj-gemini', 'echo hello');
 
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:myproj-codex.2'");
-      expect(executor.calls[2].command).toContain("tmux send-keys -t 'agent-session:myproj-codex.2' Enter");
+      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:myproj-gemini.2'");
+      expect(executor.calls[2].command).toContain("tmux send-keys -t 'agent-session:myproj-gemini.2' Enter");
     });
 
   });
@@ -290,9 +290,9 @@ describe('TmuxManager', () => {
   describe('typeKeysToWindow', () => {
     it('types keys without sending Enter', () => {
       executor.nextResult = '1\n';
-      tmux.typeKeysToWindow('agent-session', 'codex', 'hello');
+      tmux.typeKeysToWindow('agent-session', 'gemini', 'hello');
       expect(executor.calls).toHaveLength(2);
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:codex.1'");
+      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:gemini.1'");
       expect(executor.calls[1].command).toContain('hello');
       expect(executor.calls[1].command).not.toContain(' Enter');
     });
@@ -301,9 +301,9 @@ describe('TmuxManager', () => {
   describe('sendEnterToWindow', () => {
     it('sends Enter to the specified window', () => {
       executor.nextResult = '1\n';
-      tmux.sendEnterToWindow('agent-session', 'codex');
+      tmux.sendEnterToWindow('agent-session', 'gemini');
       expect(executor.calls).toHaveLength(2);
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:codex.1' Enter");
+      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:gemini.1' Enter");
     });
   });
 
@@ -416,7 +416,7 @@ describe('TmuxManager', () => {
       executor.exec = (command: string) => {
         executor.calls.push({ method: 'exec', command });
         if (command.includes('list-panes')) {
-          return '0\tcodex\tcodex';
+          return '0\tgemini\tgemini';
         }
         if (command.includes('display-message')) {
           return '220';
@@ -427,12 +427,12 @@ describe('TmuxManager', () => {
         return '';
       };
 
-      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+      tmux.ensureTuiPane('agent-session', 'gemini', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
       expect(executor.calls.some(call => call.command.includes('tmux split-window') && call.command.includes(' -h ') && call.command.includes(' -l 80 '))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux select-pane -t 'agent-session:codex.1' -T 'discode-tui'"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' window-size latest"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 80"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux select-pane -t 'agent-session:gemini.1' -T 'discode-tui'"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:gemini' window-size latest"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:gemini.1' -x 80"))).toBe(true);
       expect(executor.calls.some(call => call.command.includes('tmux run-shell -b') && call.command.includes('sleep 0.35') && call.command.includes('resize-pane') && call.command.includes(' -x 80'))).toBe(true);
       executor.exec = originalExec;
     });
@@ -442,7 +442,7 @@ describe('TmuxManager', () => {
       executor.exec = (command: string) => {
         executor.calls.push({ method: 'exec', command });
         if (command.includes('list-panes')) {
-          return '0\tcodex\tcodex';
+          return '0\tgemini\tgemini';
         }
         if (command.includes('display-message')) {
           return '70';
@@ -453,7 +453,7 @@ describe('TmuxManager', () => {
         return '';
       };
 
-      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+      tmux.ensureTuiPane('agent-session', 'gemini', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
       expect(executor.calls.some(call => call.command.includes('tmux split-window') && call.command.includes(' -l 34 '))).toBe(true);
       executor.exec = originalExec;
@@ -464,15 +464,15 @@ describe('TmuxManager', () => {
       executor.exec = (command: string) => {
         executor.calls.push({ method: 'exec', command });
         if (command.includes('list-panes')) {
-          return '2\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n0\tcodex\tcodex';
+          return '2\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n0\tgemini\tgemini';
         }
         return '';
       };
 
-      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+      tmux.ensureTuiPane('agent-session', 'gemini', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
-      expect(executor.calls.some(call => call.command.includes("tmux kill-pane -t 'agent-session:codex.2'"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 80"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux kill-pane -t 'agent-session:gemini.2'"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:gemini.1' -x 80"))).toBe(true);
       expect(executor.calls.some(call => call.command.includes('tmux split-window'))).toBe(false);
       executor.exec = originalExec;
     });
@@ -485,17 +485,17 @@ describe('TmuxManager', () => {
           return '120';
         }
         if (command.includes('list-panes')) {
-          return '1\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n0\tcodex\tcodex';
+          return '1\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n0\tgemini\tgemini';
         }
         return '';
       };
 
-      tmux.ensureTuiPane('agent-session', 'codex', "'bun' '/repo/dist/bin/discode.js' 'tui'");
+      tmux.ensureTuiPane('agent-session', 'gemini', "'bun' '/repo/dist/bin/discode.js' 'tui'");
 
-      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' window-size latest"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux select-layout -t 'agent-session:codex' main-vertical"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:codex' main-pane-width 60"))).toBe(true);
-      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:codex.1' -x 59"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:gemini' window-size latest"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux select-layout -t 'agent-session:gemini' main-vertical"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux set-window-option -t 'agent-session:gemini' main-pane-width 60"))).toBe(true);
+      expect(executor.calls.some(call => call.command.includes("tmux resize-pane -t 'agent-session:gemini.1' -x 59"))).toBe(true);
       executor.exec = originalExec;
     });
 

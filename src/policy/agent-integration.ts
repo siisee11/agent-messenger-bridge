@@ -1,7 +1,6 @@
 import { installOpencodePlugin } from '../opencode/plugin-installer.js';
 import { installClaudePlugin } from '../claude/plugin-installer.js';
 import { installGeminiHook } from '../gemini/hook-installer.js';
-import { installCodexHook } from '../codex/plugin-installer.js';
 
 export type AgentIntegrationMode = 'install' | 'reinstall';
 
@@ -79,21 +78,6 @@ export function installAgentIntegration(
       fail(mode === 'install'
         ? `Failed to install Gemini CLI hook: ${errorMessage(error)}`
         : `Could not reinstall Gemini CLI hook: ${errorMessage(error)}`);
-      return { agentType, eventHookInstalled: false, infoMessages, warningMessages };
-    }
-  }
-
-  if (agentType === 'codex') {
-    try {
-      const hookPath = installCodexHook();
-      ok(mode === 'install'
-        ? `🪝 Installed Codex notify hook: ${hookPath}`
-        : `Reinstalled Codex notify hook: ${hookPath}`);
-      return { agentType, eventHookInstalled: true, infoMessages, warningMessages };
-    } catch (error) {
-      fail(mode === 'install'
-        ? `Failed to install Codex notify hook: ${errorMessage(error)}`
-        : `Could not reinstall Codex notify hook: ${errorMessage(error)}`);
       return { agentType, eventHookInstalled: false, infoMessages, warningMessages };
     }
   }

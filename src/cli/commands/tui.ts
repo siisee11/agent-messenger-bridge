@@ -317,7 +317,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
 
         const installed = agentRegistry.getAll().filter((agent) => agent.isInstalled());
         if (installed.length === 0) {
-          append('⚠️ No agent CLIs found. Install one first (claude, codex, gemini, opencode).');
+          append('⚠️ No agent CLIs found. Install one first (claude, gemini, opencode).');
           return false;
         }
 
@@ -332,7 +332,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
           : installed.find((agent) => agent.config.name === config.defaultAgentCli) || installed[0];
 
         if (!selected) {
-          append(`⚠️ Unknown agent '${parsed.agentName}'. Try claude, codex, gemini, or opencode.`);
+          append(`⚠️ Unknown agent '${parsed.agentName}'. Try claude, gemini, or opencode.`);
           return false;
         }
 

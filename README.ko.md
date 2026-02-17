@@ -15,13 +15,13 @@ AI 에이전트 CLI를 Discord에 연결하여 원격 모니터링 및 협업을
 
 Discode는 AI 코딩 어시스턴트(Claude Code, OpenCode)를 Discord에 연결하여 원격 모니터링과 협업을 가능하게 합니다. Discord 채널을 통해 AI 에이전트의 작업을 실시간으로 관찰하고, 팀과 진행 상황을 공유하며, 여러 프로젝트를 동시에 추적할 수 있습니다.
 
-이 브리지는 폴링 기반 아키텍처를 사용하여 30초마다 tmux 패인 내용을 캡처하고, 상태 변화를 감지하여, 전용 Discord 채널로 업데이트를 스트리밍합니다. 각 프로젝트는 고유한 채널을 가지며, 단일 글로벌 데몬이 모든 연결을 효율적으로 관리합니다.
+이 브리지는 이벤트 훅 기반 아키텍처를 사용하여 에이전트 결과를 Discord/Slack 채널로 즉시 전달합니다. 각 프로젝트는 고유한 채널을 가지며, 단일 글로벌 데몬이 모든 연결을 효율적으로 관리합니다.
 
 ## 기능
 
 - **다중 에이전트 지원**: Claude Code와 OpenCode 지원
 - **자동 검색**: 시스템에 설치된 AI 에이전트 자동 감지
-- **실시간 스트리밍**: tmux 출력을 캡처하여 30초마다 Discord로 스트리밍
+- **실시간 스트리밍**: 에이전트 이벤트 훅으로 Discord/Slack에 즉시 전달
 - **프로젝트 격리**: 각 프로젝트가 전용 Discord 채널 보유
 - **단일 데몬**: 하나의 Discord 봇 연결로 모든 프로젝트 관리
 - **세션 관리**: 연결 해제에도 유지되는 지속적인 tmux 세션
@@ -105,7 +105,7 @@ discode start          # 이 프로젝트 시작
 discode attach         # tmux 세션에 연결
 ```
 
-이제 AI 에이전트가 tmux에서 실행되며, 30초마다 Discord로 출력이 스트리밍됩니다.
+이제 AI 에이전트가 tmux에서 실행되며, 이벤트 훅을 통해 Discord/Slack으로 출력이 실시간 전달됩니다.
 
 ## CLI 참조
 
@@ -249,11 +249,11 @@ discode new --no-attach  # tmux에 연결하지 않고 시작
 │  tmux session   │
 └────────┬────────┘
          │
-         │ tmux capture-pane (30초마다)
+         │ HTTP hooks
          │
-    ┌────▼─────────────┐
-    │  CapturePoller   │  상태 변화 감지
-    └────┬─────────────┘
+     ┌────▼─────────────┐
+    │  Hook Server     │  이벤트 수신/중계
+     └────┬─────────────┘
          │
          │ Discord.js
          │
@@ -265,27 +265,25 @@ discode new --no-attach  # tmux에 연결하지 않고 시작
 ### 구성 요소
 
 - **Daemon Manager**: Discord 연결을 관리하는 단일 글로벌 프로세스
-- **Capture Poller**: 30초마다 tmux 패인을 폴링하고, 변화를 감지하여 Discord로 전송
+- **Hook Server**: 에이전트 훅 이벤트를 받아 Discord/Slack으로 중계
 - **Agent Registry**: 다중 에이전트 지원을 위한 팩토리 패턴 (Claude, OpenCode)
 - **State Manager**: 프로젝트 상태, 세션, 채널 추적
 - **Dependency Injection**: 스토리지, 실행, 환경을 위한 인터페이스 (테스트 가능, 모킹 가능)
 
-### 폴링 모델
+### 이벤트 훅 모델
 
-브리지는 훅 대신 **폴링 기반** 아키텍처를 사용합니다:
+브리지는 에이전트가 보내는 훅 이벤트를 받아 메시지를 중계합니다:
 
-1. 30초마다(설정 가능) 폴러가 `tmux capture-pane` 실행
-2. 캡처한 내용을 이전 스냅샷과 비교
-3. 변화가 감지되면 새 내용을 Discord로 전송
-4. 멀티라인 출력, ANSI 코드, 속도 제한 처리
-
-이 접근 방식은 훅 기반 시스템보다 간단하고 안정적이며, 성능 영향이 최소화됩니다.
+1. 에이전트 플러그인/훅이 완료 이벤트를 로컬 Hook Server로 전송
+2. Hook Server가 메시지/파일 payload를 검증
+3. Discord/Slack 채널로 결과를 전송
+4. Pending reaction을 완료(✅) 또는 실패(❌)로 갱신
 
 ### 프로젝트 라이프사이클
 
 1. **Init**: 프로젝트 메타데이터와 함께 `.discode.json` 생성
 2. **Start**: 명명된 tmux 세션에서 AI 에이전트 실행
-3. **Polling**: 데몬이 tmux 출력을 캡처하여 Discord로 스트리밍
+3. **Hooks**: 데몬이 훅 이벤트를 받아 Discord/Slack으로 스트리밍
 4. **Stop**: tmux 세션 종료 및 정리
 5. **Attach**: 사용자가 tmux 세션에 참여하여 직접 상호작용 가능
 
@@ -294,8 +292,10 @@ discode new --no-attach  # tmux에 연결하지 않고 시작
 | 에이전트 | 바이너리 | 자동 감지 | YOLO 지원 | 비고 |
 |-------|--------|-------------|--------------|-------|
 | **Claude Code** | `claude` | 예 | 예 | 공식 Anthropic CLI |
-| **Codex** | `codex` | 예 | 아니오 | OpenAI Codex CLI |
+| **Gemini CLI** | `gemini` | 예 | 아니오 | Google Gemini CLI |
 | **OpenCode** | `opencode` | 예 | 예 | 오픈소스 대안 |
+
+> 참고: Codex 지원은 현재 일시적으로 제거되었으며, Codex에 hook 지원이 추가되면 다시 지원할 예정입니다. 관련 논의: https://github.com/openai/codex/discussions/2150
 
 ### 에이전트 감지
 
@@ -374,7 +374,7 @@ bun run test:coverage # 커버리지 리포트
 - 에이전트 어댑터
 - 상태 관리
 - Discord 클라이언트
-- 캡처 폴링
+- 훅 이벤트 전달
 - CLI 명령어
 - 스토리지 및 실행 모킹
 
@@ -383,8 +383,8 @@ bun run test:coverage # 커버리지 리포트
 ```
 discode/
 ├── src/
-│   ├── agents/           # 에이전트 어댑터 (Claude, OpenCode)
-│   ├── core/             # 핵심 로직 (데몬, 폴러, 상태)
+│   ├── agents/           # 에이전트 어댑터 (Claude, Gemini, OpenCode)
+│   ├── core/             # 핵심 로직 (데몬, 훅 처리, 상태)
 │   ├── infra/            # 인프라 (스토리지, 셸, 환경)
 │   ├── types/            # TypeScript 인터페이스
 │   ├── cli/              # CLI 명령어
