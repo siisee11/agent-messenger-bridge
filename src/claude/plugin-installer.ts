@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, mkdirSync } from 'fs';
+import { chmodSync, cpSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -10,7 +10,12 @@ export function getClaudePluginDir(): string {
 }
 
 export function getPluginSourceDir(): string {
-  return join(import.meta.dirname, 'plugin');
+  const candidates = [
+    join(import.meta.dirname, 'plugin'),             // source layout: src/claude/
+    join(import.meta.dirname, 'claude', 'plugin'),   // bundled chunk in dist/
+    join(import.meta.dirname, '../claude', 'plugin'), // bundled entry in dist/src/
+  ];
+  return candidates.find(p => existsSync(p)) ?? candidates[0];
 }
 
 export function installClaudePlugin(_projectPath?: string, targetDir?: string): string {

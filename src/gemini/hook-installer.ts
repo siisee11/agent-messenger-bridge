@@ -155,7 +155,12 @@ export function getGeminiSettingsPath(targetGeminiDir?: string): string {
 }
 
 export function getGeminiHookSourcePath(): string {
-  return join(import.meta.dirname, 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME);
+  const candidates = [
+    join(import.meta.dirname, 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME),             // source layout: src/gemini/
+    join(import.meta.dirname, 'gemini', 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME),   // bundled chunk in dist/
+    join(import.meta.dirname, '../gemini', 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME), // bundled entry in dist/src/
+  ];
+  return candidates.find(p => existsSync(p)) ?? candidates[0];
 }
 
 export function installGeminiHook(_projectPath?: string, targetGeminiDir?: string): string {

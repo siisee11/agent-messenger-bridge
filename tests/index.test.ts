@@ -54,13 +54,15 @@ function createMockStateManager(): IStateManager {
   };
 }
 
-function createMockDiscord() {
+function createMockMessaging() {
   return {
+    platform: 'discord',
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
     onMessage: vi.fn(),
     registerChannelMappings: vi.fn(),
     sendToChannel: vi.fn().mockResolvedValue(undefined),
+    sendToChannelWithFiles: vi.fn().mockResolvedValue(undefined),
     addReactionToMessage: vi.fn().mockResolvedValue(undefined),
     replaceOwnReactionOnMessage: vi.fn().mockResolvedValue(undefined),
     getGuilds: vi.fn().mockReturnValue([]),
@@ -121,7 +123,7 @@ describe('AgentBridge', () => {
   describe('sanitizeInput', () => {
     it('returns null for empty string', () => {
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -133,7 +135,7 @@ describe('AgentBridge', () => {
 
     it('returns null for whitespace-only string', () => {
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -145,7 +147,7 @@ describe('AgentBridge', () => {
 
     it('returns null for string > 10000 chars', () => {
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -158,7 +160,7 @@ describe('AgentBridge', () => {
 
     it('strips null bytes', () => {
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -171,7 +173,7 @@ describe('AgentBridge', () => {
 
     it('returns valid content unchanged', () => {
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -185,14 +187,14 @@ describe('AgentBridge', () => {
 
   describe('constructor', () => {
     it('creates with all dependencies injected', () => {
-      const mockDiscord = createMockDiscord();
+      const mockMessaging = createMockMessaging();
       const mockTmux = createMockTmux();
       const mockStateManager = createMockStateManager();
       const mockRegistry = createMockRegistry();
       const mockConfig = createMockConfig();
 
       const bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: mockRegistry,
@@ -205,7 +207,7 @@ describe('AgentBridge', () => {
     it('creates with mocked dependencies', () => {
       // Just verify the class is constructable with mocked deps
       const bridge = new AgentBridge({
-        discord: createMockDiscord(),
+        messaging: createMockMessaging(),
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -219,14 +221,14 @@ describe('AgentBridge', () => {
 
   describe('start', () => {
     let bridge: AgentBridge;
-    let mockDiscord: any;
+    let mockMessaging: any;
     let mockStateManager: any;
 
     beforeEach(() => {
-      mockDiscord = createMockDiscord();
+      mockMessaging = createMockMessaging();
       mockStateManager = createMockStateManager();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: createMockTmux(),
         stateManager: mockStateManager,
         registry: createMockRegistry(),
@@ -238,7 +240,7 @@ describe('AgentBridge', () => {
       await bridge.stop();
     });
 
-    it('connects discord and registers channel mappings from state', async () => {
+    it('connects messaging client and registers channel mappings from state', async () => {
       const projects: ProjectState[] = [
         {
           projectName: 'test-project',
@@ -254,18 +256,18 @@ describe('AgentBridge', () => {
 
       await bridge.start();
 
-      expect(mockDiscord.connect).toHaveBeenCalledOnce();
-      expect(mockDiscord.registerChannelMappings).toHaveBeenCalledWith([
+      expect(mockMessaging.connect).toHaveBeenCalledOnce();
+      expect(mockMessaging.registerChannelMappings).toHaveBeenCalledWith([
         { channelId: 'ch-123', projectName: 'test-project', agentType: 'claude', instanceId: 'claude' },
         { channelId: 'ch-456', projectName: 'test-project', agentType: 'cursor', instanceId: 'cursor' },
       ]);
     });
 
-    it('sets up message callback via discord.onMessage', async () => {
+    it('sets up message callback via messaging.onMessage', async () => {
       await bridge.start();
 
-      expect(mockDiscord.onMessage).toHaveBeenCalledOnce();
-      expect(mockDiscord.onMessage).toHaveBeenCalledWith(expect.any(Function));
+      expect(mockMessaging.onMessage).toHaveBeenCalledOnce();
+      expect(mockMessaging.onMessage).toHaveBeenCalledWith(expect.any(Function));
     });
 
     it('marks claude projects as event-hook driven after plugin install', async () => {
@@ -319,7 +321,7 @@ describe('AgentBridge', () => {
     it('uses reactions instead of received/completed status messages', async () => {
       const mockTmux = createMockTmux();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: createMockRegistry(),
@@ -337,17 +339,17 @@ describe('AgentBridge', () => {
       });
 
       await bridge.start();
-      const cb = mockDiscord.onMessage.mock.calls[0][0];
+      const cb = mockMessaging.onMessage.mock.calls[0][0];
       await cb('claude', 'hello', 'test-project', 'ch-123', 'msg-1');
 
-      expect(mockDiscord.addReactionToMessage).toHaveBeenCalledWith('ch-123', 'msg-1', '⏳');
-      const statusMessages = mockDiscord.sendToChannel.mock.calls
+      expect(mockMessaging.addReactionToMessage).toHaveBeenCalledWith('ch-123', 'msg-1', '⏳');
+      const statusMessages = mockMessaging.sendToChannel.mock.calls
         .map((c: any[]) => String(c[1] ?? ''))
         .filter((msg) => msg.includes('받은 메시지') || msg.includes('✅ 작업 완료'));
       expect(statusMessages).toHaveLength(0);
 
       await (bridge as any).markAgentMessageCompleted('test-project', 'claude');
-      expect(mockDiscord.replaceOwnReactionOnMessage).toHaveBeenCalledWith('ch-123', 'msg-1', '⏳', '✅');
+      expect(mockMessaging.replaceOwnReactionOnMessage).toHaveBeenCalledWith('ch-123', 'msg-1', '⏳', '✅');
     });
 
     it('retries Enter for codex if the prompt is not submitted', async () => {
@@ -359,7 +361,7 @@ describe('AgentBridge', () => {
 
       const mockTmux = createMockTmux();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: createMockRegistry(),
@@ -383,7 +385,7 @@ describe('AgentBridge', () => {
         .mockReturnValueOnce('› hello\n');
 
       await bridge.start();
-      const cb = mockDiscord.onMessage.mock.calls[0][0];
+      const cb = mockMessaging.onMessage.mock.calls[0][0];
 
       await cb('codex', 'hello', 'test-project', 'ch-123');
 
@@ -391,7 +393,7 @@ describe('AgentBridge', () => {
       expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'codex', 'codex');
 
       // Should not send failure warning
-      const warningCalls = mockDiscord.sendToChannel.mock.calls
+      const warningCalls = mockMessaging.sendToChannel.mock.calls
         .map((c: any[]) => String(c[1] ?? ''))
         .filter((msg) => msg.includes('Codex에 메시지를 제출하지 못했습니다'));
       expect(warningCalls).toHaveLength(0);
@@ -405,7 +407,7 @@ describe('AgentBridge', () => {
 
       const mockTmux = createMockTmux();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: createMockRegistry(),
@@ -428,14 +430,14 @@ describe('AgentBridge', () => {
         .mockReturnValueOnce('Some help output...\n');
 
       await bridge.start();
-      const cb = mockDiscord.onMessage.mock.calls[0][0];
+      const cb = mockMessaging.onMessage.mock.calls[0][0];
 
       await cb('codex', '/help', 'test-project', 'ch-123');
 
       expect(mockTmux.typeKeysToWindow).toHaveBeenCalledWith('agent-test', 'codex', '/help', 'codex');
       expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'codex', 'codex');
 
-      const warningCalls = mockDiscord.sendToChannel.mock.calls
+      const warningCalls = mockMessaging.sendToChannel.mock.calls
         .map((c: any[]) => String(c[1] ?? ''))
         .filter((msg) => msg.includes('Codex에 메시지를 제출하지 못했습니다'));
       expect(warningCalls).toHaveLength(0);
@@ -446,7 +448,7 @@ describe('AgentBridge', () => {
 
       const mockTmux = createMockTmux();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: createMockRegistry(),
@@ -465,7 +467,7 @@ describe('AgentBridge', () => {
       });
 
       await bridge.start();
-      const cb = mockDiscord.onMessage.mock.calls[0][0];
+      const cb = mockMessaging.onMessage.mock.calls[0][0];
       await cb('opencode', 'hello opencode', 'test-project', 'ch-123');
 
       expect(mockTmux.typeKeysToWindow).toHaveBeenCalledWith('agent-test', 'test-project-opencode', 'hello opencode', 'opencode');
@@ -476,18 +478,18 @@ describe('AgentBridge', () => {
 
   describe('setupProject', () => {
     let bridge: AgentBridge;
-    let mockDiscord: any;
+    let mockMessaging: any;
     let mockTmux: any;
     let mockStateManager: any;
     let mockRegistry: any;
 
     beforeEach(() => {
-      mockDiscord = createMockDiscord();
+      mockMessaging = createMockMessaging();
       mockTmux = createMockTmux();
       mockStateManager = createMockStateManager();
       mockRegistry = createMockRegistry();
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: mockRegistry,
@@ -495,7 +497,7 @@ describe('AgentBridge', () => {
       });
     });
 
-    it('creates tmux session, discord channel, saves state', async () => {
+    it('creates tmux session, messaging channel, saves state', async () => {
       const result = await bridge.setupProject(
         'test-project',
         '/test/path',
@@ -503,7 +505,7 @@ describe('AgentBridge', () => {
       );
 
       expect(mockTmux.getOrCreateSession).toHaveBeenCalledWith('bridge', 'test-project-claude');
-      expect(mockDiscord.createAgentChannels).toHaveBeenCalledWith(
+      expect(mockMessaging.createAgentChannels).toHaveBeenCalledWith(
         'guild-123',
         'test-project',
         [mockRegistry._mockAdapter.config],
@@ -539,10 +541,10 @@ describe('AgentBridge', () => {
         isInstalled: vi.fn().mockReturnValue(true),
       };
       mockRegistry.getAll.mockReturnValue([opencodeAdapter]);
-      mockDiscord.createAgentChannels.mockResolvedValue({ opencode: 'ch-op' });
+      mockMessaging.createAgentChannels.mockResolvedValue({ opencode: 'ch-op' });
 
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: mockRegistry,
@@ -563,7 +565,7 @@ describe('AgentBridge', () => {
 
     it('adds claude skip-permissions flag when permission mode is allow', async () => {
       bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: mockTmux,
         stateManager: mockStateManager,
         registry: mockRegistry,
@@ -596,10 +598,10 @@ describe('AgentBridge', () => {
   });
 
   describe('stop', () => {
-    it('stops poller and disconnects discord', async () => {
-      const mockDiscord = createMockDiscord();
+    it('stops poller and disconnects messaging client', async () => {
+      const mockMessaging = createMockMessaging();
       const bridge = new AgentBridge({
-        discord: mockDiscord,
+        messaging: mockMessaging,
         tmux: createMockTmux(),
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
@@ -612,7 +614,7 @@ describe('AgentBridge', () => {
       // Now stop
       await bridge.stop();
 
-      expect(mockDiscord.disconnect).toHaveBeenCalledOnce();
+      expect(mockMessaging.disconnect).toHaveBeenCalledOnce();
     });
   });
 });

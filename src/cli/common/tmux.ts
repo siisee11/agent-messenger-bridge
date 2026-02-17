@@ -212,6 +212,8 @@ export function applyTmuxCliOverrides(base: BridgeConfig, options: TmuxCliOption
 
   return {
     discord: baseDiscord,
+    ...(base.slack ? { slack: base.slack } : {}),
+    ...(base.messagingPlatform ? { messagingPlatform: base.messagingPlatform } : {}),
     hookServerPort: baseHookPort,
     defaultAgentCli: baseDefaultAgentCli,
     opencode: baseOpencode,

@@ -3,6 +3,8 @@
  */
 
 import { DiscordClient } from './discord/client.js';
+import { SlackClient } from './slack/client.js';
+import type { MessagingClient } from './messaging/interface.js';
 import { TmuxManager } from './tmux/manager.js';
 import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
@@ -27,7 +29,7 @@ import { BridgeMessageRouter } from './bridge/message-router.js';
 import { BridgeHookServer } from './bridge/hook-server.js';
 
 export interface AgentBridgeDeps {
-  discord?: DiscordClient;
+  messaging?: MessagingClient;
   tmux?: TmuxManager;
   codexSubmitter?: CodexSubmitter;
   stateManager?: IStateManager;
@@ -36,7 +38,7 @@ export interface AgentBridgeDeps {
 }
 
 export class AgentBridge {
-  private discord: DiscordClient;
+  private messaging: MessagingClient;
   private tmux: TmuxManager;
   private codexSubmitter: CodexSubmitter;
   private poller: CapturePoller;
@@ -50,15 +52,15 @@ export class AgentBridge {
 
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
-    this.discord = deps?.discord || new DiscordClient(this.bridgeConfig.discord.token);
+    this.messaging = deps?.messaging || this.createMessagingClient();
     this.tmux = deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
     this.codexSubmitter = deps?.codexSubmitter || new CodexSubmitter(this.tmux);
-    this.pendingTracker = new PendingMessageTracker(this.discord);
-    this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.discord);
+    this.pendingTracker = new PendingMessageTracker(this.messaging);
+    this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.messaging);
     this.messageRouter = new BridgeMessageRouter({
-      discord: this.discord,
+      messaging: this.messaging,
       tmux: this.tmux,
       codexSubmitter: this.codexSubmitter,
       stateManager: this.stateManager,
@@ -67,12 +69,12 @@ export class AgentBridge {
     });
     this.hookServer = new BridgeHookServer({
       port: this.bridgeConfig.hookServerPort || 18470,
-      discord: this.discord,
+      messaging: this.messaging,
       stateManager: this.stateManager,
       pendingTracker: this.pendingTracker,
       reloadChannelMappings: () => this.projectBootstrap.reloadChannelMappings(),
     });
-    this.poller = new CapturePoller(this.tmux, this.discord, 30000, this.stateManager, {
+    this.poller = new CapturePoller(this.tmux, this.messaging, 30000, this.stateManager, {
       onAgentComplete: async (projectName, agentType, instanceId) => {
         await this.markAgentMessageCompleted(projectName, agentType, instanceId);
       },
@@ -82,8 +84,18 @@ export class AgentBridge {
     });
   }
 
+  private createMessagingClient(): MessagingClient {
+    if (this.bridgeConfig.messagingPlatform === 'slack') {
+      if (!this.bridgeConfig.slack) {
+        throw new Error('Slack is configured as messaging platform but Slack tokens are missing. Run: discode onboard --platform slack');
+      }
+      return new SlackClient(this.bridgeConfig.slack.botToken, this.bridgeConfig.slack.appToken);
+    }
+    return new DiscordClient(this.bridgeConfig.discord.token);
+  }
+
   /**
-   * Sanitize Discord message input before passing to tmux
+   * Sanitize message input before passing to tmux
    */
   public sanitizeInput(content: string): string | null {
     // Reject empty/whitespace-only messages
@@ -103,17 +115,17 @@ export class AgentBridge {
   }
 
   /**
-   * Connect to Discord only (for init command)
+   * Connect messaging client (for init command)
    */
   async connect(): Promise<void> {
-    await this.discord.connect();
+    await this.messaging.connect();
   }
 
   async start(): Promise<void> {
     console.log('🚀 Starting Discode...');
 
-    await this.discord.connect();
-    console.log('✅ Discord connected');
+    await this.messaging.connect();
+    console.log('✅ Messaging client connected');
 
     this.projectBootstrap.bootstrapProjects();
     this.messageRouter.register();
@@ -133,7 +145,8 @@ export class AgentBridge {
     overridePort?: number,
     options?: { instanceId?: string },
   ): Promise<{ channelName: string; channelId: string; agentName: string; tmuxSession: string }> {
-    const guildId = this.stateManager.getGuildId();
+    const isSlack = this.bridgeConfig.messagingPlatform === 'slack';
+    const guildId = isSlack ? this.stateManager.getWorkspaceId() : this.stateManager.getGuildId();
     if (!guildId) {
       throw new Error('Server ID not configured. Run: discode config --server <id>');
     }
@@ -162,7 +175,7 @@ export class AgentBridge {
 
     // Create Discord channel with custom name or default
     const channelName = channelDisplayName || toProjectScopedName(projectName, adapter.config.channelSuffix, instanceId);
-    const channels = await this.discord.createAgentChannels(
+    const channels = await this.messaging.createAgentChannels(
       guildId,
       projectName,
       [adapter.config],
@@ -226,7 +239,7 @@ export class AgentBridge {
         instanceId,
         agentType: adapter.config.name,
         tmuxWindow: windowName,
-        discordChannelId: channelId,
+        channelId,
         eventHook: adapter.config.name === 'opencode' || integration.eventHookInstalled,
       },
     };
@@ -259,7 +272,7 @@ export class AgentBridge {
   async stop(): Promise<void> {
     this.poller.stop();
     this.hookServer.stop();
-    await this.discord.disconnect();
+    await this.messaging.disconnect();
   }
 }
 

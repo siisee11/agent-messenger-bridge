@@ -50,8 +50,8 @@
     "@siisee11/discode-linux-arm64-musl": "0.3.1",
     "@siisee11/discode-linux-x64": "0.3.1",
     "@siisee11/discode-linux-x64-baseline": "0.3.1",
-    "@siisee11/discode-linux-x64-musl": "0.3.1",
     "@siisee11/discode-linux-x64-baseline-musl": "0.3.1",
+    "@siisee11/discode-linux-x64-musl": "0.3.1",
     "@siisee11/discode-windows-x64": "0.3.1",
     "@siisee11/discode-windows-x64-baseline": "0.3.1"
   },
@@ -61,6 +61,7 @@
   "dependencies": {
     "@opentui/core": "^0.1.77",
     "@opentui/solid": "^0.1.77",
+    "@slack/bolt": "^4.6.0",
     "@types/yargs": "^17.0.35",
     "chalk": "^5.3.0",
     "discord.js": "^14.14.1",

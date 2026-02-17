@@ -1,4 +1,4 @@
-import { DiscordClient } from '../discord/client.js';
+import type { MessagingClient } from '../messaging/interface.js';
 import { installFileInstruction } from '../infra/file-instruction.js';
 import { installAgentIntegration } from '../policy/agent-integration.js';
 import type { IStateManager } from '../types/interfaces.js';
@@ -20,9 +20,9 @@ function buildMappings(projects: ReturnType<IStateManager['listProjects']>): Cha
   for (const rawProject of projects) {
     const project = normalizeProjectState(rawProject);
     for (const instance of listProjectInstances(project)) {
-      if (!instance.discordChannelId) continue;
+      if (!instance.channelId) continue;
       mappings.push({
-        channelId: instance.discordChannelId,
+        channelId: instance.channelId,
         projectName: project.projectName,
         agentType: instance.agentType,
         instanceId: instance.instanceId,
@@ -35,7 +35,7 @@ function buildMappings(projects: ReturnType<IStateManager['listProjects']>): Cha
 export class BridgeProjectBootstrap {
   constructor(
     private stateManager: IStateManager,
-    private discord: DiscordClient,
+    private messaging: MessagingClient,
   ) {}
 
   bootstrapProjects(): ReturnType<IStateManager['listProjects']> {
@@ -105,7 +105,7 @@ export class BridgeProjectBootstrap {
   private registerMappings(projects: ReturnType<IStateManager['listProjects']>): ChannelMapping[] {
     const mappings = buildMappings(projects);
     if (mappings.length > 0) {
-      this.discord.registerChannelMappings(mappings);
+      this.messaging.registerChannelMappings(mappings);
     }
     return mappings;
   }

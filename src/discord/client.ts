@@ -14,27 +14,15 @@ import {
   EmbedBuilder,
   AttachmentBuilder,
 } from 'discord.js';
-import type { AgentMessage, DiscordAttachment } from '../types/index.js';
+import type { AgentMessage, MessageAttachment } from '../types/index.js';
 import { agentRegistry as defaultAgentRegistry, type AgentConfig, type AgentRegistry } from '../agents/index.js';
 import { normalizeDiscordToken } from '../config/token.js';
+import type { MessagingClient, MessageCallback, ChannelInfo } from '../messaging/interface.js';
 
-type MessageCallback = (
-  agentType: string,
-  content: string,
-  projectName: string,
-  channelId: string,
-  messageId?: string,
-  instanceId?: string,
-  attachments?: DiscordAttachment[]
-) => void | Promise<void>;
+export type { MessageCallback, ChannelInfo };
 
-interface ChannelInfo {
-  projectName: string;
-  agentType: string;
-  instanceId?: string;
-}
-
-export class DiscordClient {
+export class DiscordClient implements MessagingClient {
+  readonly platform = 'discord' as const;
   private client: Client;
   private token: string;
   private targetChannel?: TextChannel;
@@ -78,7 +66,7 @@ export class DiscordClient {
       if (channelInfo && this.messageCallback) {
         try {
           // Extract attachments from the Discord message
-          const attachments: DiscordAttachment[] = message.attachments.map((a) => ({
+          const attachments: MessageAttachment[] = message.attachments.map((a) => ({
             url: a.url,
             filename: a.name ?? 'unknown',
             contentType: a.contentType,

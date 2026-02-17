@@ -4,11 +4,11 @@
  */
 
 import { TmuxManager } from '../tmux/manager.js';
-import { DiscordClient } from '../discord/client.js';
+import type { MessagingClient } from '../messaging/interface.js';
 import { stateManager as defaultStateManager, type ProjectState } from '../state/index.js';
 import type { ProjectInstanceState } from '../types/index.js';
 import type { IStateManager } from '../types/interfaces.js';
-import { cleanCapture, splitForDiscord } from './parser.js';
+import { cleanCapture, splitForDiscord, splitForSlack } from './parser.js';
 import { detectState } from './detector.js';
 import { listProjectInstances } from '../state/instances.js';
 
@@ -39,7 +39,7 @@ export class CapturePoller {
 
   constructor(
     private tmux: TmuxManager,
-    private discord: DiscordClient,
+    private messaging: MessagingClient,
     private intervalMs: number = 30000,
     private stateManager: IStateManager = defaultStateManager,
     private hooks?: PollerHooks
@@ -82,7 +82,7 @@ export class CapturePoller {
     const state = this.states.get(key) || defaultPollState();
     this.states.set(key, state);
 
-    const channelId = instance.discordChannelId;
+    const channelId = instance.channelId;
     if (!channelId) return;
 
     // Try to capture pane
@@ -126,7 +126,8 @@ export class CapturePoller {
       await this.hooks?.onAgentComplete?.(project.projectName, instance.agentType, instance.instanceId);
 
       if (content && content !== state.lastReportedCapture) {
-        const chunks = splitForDiscord(content);
+        const split = this.messaging.platform === 'slack' ? splitForSlack : splitForDiscord;
+        const chunks = split(content);
         for (const chunk of chunks) {
           await this.send(channelId, chunk);
         }
@@ -139,7 +140,7 @@ export class CapturePoller {
 
   private async send(channelId: string, message: string): Promise<void> {
     try {
-      await this.discord.sendToChannel(channelId, message);
+      await this.messaging.sendToChannel(channelId, message);
     } catch (error) {
       console.error(`Failed to send to ${channelId}:`, error);
     }

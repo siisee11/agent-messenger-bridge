@@ -1,4 +1,4 @@
-import { DiscordClient } from '../discord/client.js';
+import type { MessagingClient } from '../messaging/interface.js';
 import { TmuxManager } from '../tmux/manager.js';
 import { CodexSubmitter } from '../codex/submitter.js';
 import type { IStateManager } from '../types/interfaces.js';
@@ -12,7 +12,7 @@ import { downloadFileAttachments, buildFileMarkers } from '../infra/file-downloa
 import { PendingMessageTracker } from './pending-message-tracker.js';
 
 export interface BridgeMessageRouterDeps {
-  discord: DiscordClient;
+  messaging: MessagingClient;
   tmux: TmuxManager;
   codexSubmitter: CodexSubmitter;
   stateManager: IStateManager;
@@ -24,9 +24,9 @@ export class BridgeMessageRouter {
   constructor(private deps: BridgeMessageRouterDeps) {}
 
   register(): void {
-    const { discord } = this.deps;
+    const { messaging } = this.deps;
 
-    discord.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId, attachments) => {
+    messaging.onMessage(async (agentType, content, projectName, channelId, messageId, mappedInstanceId, attachments) => {
       console.log(
         `📨 [${projectName}/${agentType}${mappedInstanceId ? `#${mappedInstanceId}` : ''}] ${content.substring(0, 50)}...`,
       );
@@ -34,7 +34,7 @@ export class BridgeMessageRouter {
       const project = this.deps.stateManager.getProject(projectName);
       if (!project) {
         console.warn(`Project ${projectName} not found in state`);
-        await discord.sendToChannel(channelId, `⚠️ Project "${projectName}" not found in state`);
+        await messaging.sendToChannel(channelId, `⚠️ Project "${projectName}" not found in state`);
         return;
       }
 
@@ -44,7 +44,7 @@ export class BridgeMessageRouter {
         findProjectInstanceByChannel(normalizedProject, channelId) ||
         getPrimaryInstanceForAgent(normalizedProject, agentType);
       if (!mappedInstance) {
-        await discord.sendToChannel(channelId, '⚠️ Agent instance mapping not found for this channel');
+        await messaging.sendToChannel(channelId, '⚠️ Agent instance mapping not found for this channel');
         return;
       }
 
@@ -55,7 +55,7 @@ export class BridgeMessageRouter {
       let enrichedContent = content;
       if (attachments && attachments.length > 0) {
         try {
-          const downloaded = await downloadFileAttachments(attachments, project.projectPath);
+          const downloaded = await downloadFileAttachments(attachments, project.projectPath, attachments[0]?.authHeaders);
           if (downloaded.length > 0) {
             const markers = buildFileMarkers(downloaded);
             enrichedContent = content + markers;
@@ -68,7 +68,7 @@ export class BridgeMessageRouter {
 
       const sanitized = this.deps.sanitizeInput(enrichedContent);
       if (!sanitized) {
-        await discord.sendToChannel(channelId, '⚠️ Invalid message: empty, too long (>10000 chars), or contains invalid characters');
+        await messaging.sendToChannel(channelId, '⚠️ Invalid message: empty, too long (>10000 chars), or contains invalid characters');
         return;
       }
 
@@ -81,7 +81,7 @@ export class BridgeMessageRouter {
           const ok = await this.deps.codexSubmitter.submit(normalizedProject.tmuxSession, windowName, sanitized);
           if (!ok) {
             await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
-            await discord.sendToChannel(
+            await messaging.sendToChannel(
               channelId,
               '⚠️ Codex에 메시지를 제출하지 못했습니다. Codex가 busy 상태일 수 있어요.\n' +
               'tmux로 붙어서 Enter를 한 번 눌러보거나, 잠시 후 다시 보내주세요.'
@@ -94,7 +94,7 @@ export class BridgeMessageRouter {
         }
       } catch (error) {
         await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
-        await discord.sendToChannel(
+        await messaging.sendToChannel(
           channelId,
           `⚠️ tmux로 메시지 전달 실패: ${error instanceof Error ? error.message : String(error)}`
         );

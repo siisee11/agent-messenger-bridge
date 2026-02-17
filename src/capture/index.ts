@@ -4,4 +4,4 @@
 
 export { CapturePoller } from './poller.js';
 export { detectState, type AgentState } from './detector.js';
-export { stripAnsi, cleanCapture, splitForDiscord, stripOuterCodeblock } from './parser.js';
+export { stripAnsi, cleanCapture, splitForDiscord, splitForSlack, stripOuterCodeblock } from './parser.js';

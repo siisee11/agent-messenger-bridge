@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -9,7 +9,12 @@ export function getOpencodePluginDir(): string {
 }
 
 export function getPluginSourcePath(): string {
-  return join(import.meta.dirname, 'plugin', OPENCODE_PLUGIN_FILENAME);
+  const candidates = [
+    join(import.meta.dirname, 'plugin', OPENCODE_PLUGIN_FILENAME),             // source layout: src/opencode/
+    join(import.meta.dirname, 'opencode', 'plugin', OPENCODE_PLUGIN_FILENAME), // bundled chunk in dist/
+    join(import.meta.dirname, '../opencode', 'plugin', OPENCODE_PLUGIN_FILENAME), // bundled entry in dist/src/
+  ];
+  return candidates.find(p => existsSync(p)) ?? candidates[0];
 }
 
 export function installOpencodePlugin(_projectPath?: string, targetDir?: string): string {

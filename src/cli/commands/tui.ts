@@ -387,7 +387,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
           const window = primaryInstance
             ? resolveProjectWindowName(project, primaryInstance.agentType, effectiveConfig.tmux, primaryInstance.instanceId)
             : '(none)';
-          const channelCount = instances.filter((instance) => !!instance.discordChannelId).length;
+          const channelCount = instances.filter((instance) => !!instance.channelId).length;
           const channelBase = channelCount > 0 ? `${channelCount} channel(s)` : 'not connected';
           const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
           const windowUp = sessionUp && instances.some((instance) => {

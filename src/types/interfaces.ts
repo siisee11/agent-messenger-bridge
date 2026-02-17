@@ -46,6 +46,8 @@ export interface IStateManager {
   listProjects(): ProjectState[];
   getGuildId(): string | undefined;
   setGuildId(id: string): void;
+  getWorkspaceId(): string | undefined;
+  setWorkspaceId(id: string): void;
   updateLastActive(name: string): void;
   findProjectByChannel(channelId: string): ProjectState | undefined;
   getAgentTypeByChannel(channelId: string): string | undefined;

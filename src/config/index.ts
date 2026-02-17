@@ -4,7 +4,7 @@
 
 import { config as loadEnv } from 'dotenv';
 import { join } from 'path';
-import type { BridgeConfig } from '../types/index.js';
+import type { BridgeConfig, MessagingPlatform } from '../types/index.js';
 import type { IStorage, IEnvironment } from '../types/interfaces.js';
 import { FileStorage } from '../infra/storage.js';
 import { SystemEnvironment } from '../infra/environment.js';
@@ -17,6 +17,9 @@ export interface StoredConfig {
   defaultAgentCli?: string;
   opencodePermissionMode?: 'allow' | 'default';
   keepChannelOnStop?: boolean;
+  slackBotToken?: string;
+  slackAppToken?: string;
+  messagingPlatform?: 'discord' | 'slack';
 }
 
 export class ConfigManager {
@@ -53,6 +56,13 @@ export class ConfigManager {
       const opencodePermissionMode = storedConfig.opencodePermissionMode || envPermissionMode;
       const defaultAgentCli = storedConfig.defaultAgentCli || this.env.get('DISCODE_DEFAULT_AGENT_CLI');
 
+      const platformRaw = storedConfig.messagingPlatform || this.env.get('MESSAGING_PLATFORM');
+      const messagingPlatform: MessagingPlatform | undefined =
+        platformRaw === 'slack' ? 'slack' : platformRaw === 'discord' ? 'discord' : undefined;
+
+      const slackBotToken = storedConfig.slackBotToken || this.env.get('SLACK_BOT_TOKEN');
+      const slackAppToken = storedConfig.slackAppToken || this.env.get('SLACK_APP_TOKEN');
+
       // Merge: stored config > environment variables > defaults
       this._config = {
         discord: {
@@ -60,6 +70,10 @@ export class ConfigManager {
           channelId: this.env.get('DISCORD_CHANNEL_ID'),
           guildId: storedConfig.serverId || this.env.get('DISCORD_GUILD_ID'),
         },
+        ...(slackBotToken && slackAppToken
+          ? { slack: { botToken: slackBotToken, appToken: slackAppToken } }
+          : {}),
+        ...(messagingPlatform ? { messagingPlatform } : {}),
         tmux: {
           sessionPrefix: this.env.get('TMUX_SESSION_PREFIX') || '',
           sharedSessionName: this.env.get('TMUX_SHARED_SESSION_NAME') || 'bridge',
@@ -112,12 +126,22 @@ export class ConfigManager {
   }
 
   validateConfig(): void {
-    if (!this.config.discord.token) {
-      throw new Error(
-        'Discord bot token not configured.\n' +
-        'Run: discode config --token <your-token>\n' +
-        'Or set DISCORD_BOT_TOKEN environment variable'
-      );
+    if (this.config.messagingPlatform === 'slack') {
+      if (!this.config.slack?.botToken || !this.config.slack?.appToken) {
+        throw new Error(
+          'Slack tokens not configured.\n' +
+          'Run: discode onboard --platform slack\n' +
+          'Or set SLACK_BOT_TOKEN and SLACK_APP_TOKEN environment variables'
+        );
+      }
+    } else {
+      if (!this.config.discord.token) {
+        throw new Error(
+          'Discord bot token not configured.\n' +
+          'Run: discode config --token <your-token>\n' +
+          'Or set DISCORD_BOT_TOKEN environment variable'
+        );
+      }
     }
   }
 

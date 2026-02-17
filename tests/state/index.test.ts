@@ -119,7 +119,7 @@ describe('StateManager', () => {
             claude: expect.objectContaining({
               instanceId: 'claude',
               agentType: 'claude',
-              discordChannelId: 'channel-789',
+              channelId: 'channel-789',
             }),
           }),
         })

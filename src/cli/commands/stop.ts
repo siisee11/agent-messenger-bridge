@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import { stateManager } from '../../state/index.js';
 import { config } from '../../config/index.js';
 import { listProjectInstances, getProjectInstance } from '../../state/instances.js';
-import { deleteDiscordChannels } from '../../app/channel-service.js';
+import { deleteChannels } from '../../app/channel-service.js';
 import { removeInstanceFromProjectState, removeProjectState } from '../../app/project-service.js';
 import type { TmuxCliOptions } from '../common/types.js';
 import {
@@ -70,9 +70,9 @@ export async function stopCommand(
       }
     }
 
-    if (!options.keepChannel && instance.discordChannelId) {
+    if (!options.keepChannel && instance.channelId) {
       try {
-        const deleted = await deleteDiscordChannels([instance.discordChannelId]);
+        const deleted = await deleteChannels([instance.channelId]);
         if (deleted.length > 0) {
           console.log(chalk.green(`✅ Discord channel deleted: ${deleted[0]}`));
         }
@@ -138,11 +138,11 @@ export async function stopCommand(
 
   if (project && !options.keepChannel) {
     const channelIds = listProjectInstances(project)
-      .map((instance) => instance.discordChannelId)
+      .map((instance) => instance.channelId)
       .filter((channelId): channelId is string => !!channelId);
     if (channelIds.length > 0) {
       try {
-        const deleted = await deleteDiscordChannels(channelIds);
+        const deleted = await deleteChannels(channelIds);
         for (const channelId of deleted) {
           console.log(chalk.green(`✅ Discord channel deleted: ${channelId}`));
         }
