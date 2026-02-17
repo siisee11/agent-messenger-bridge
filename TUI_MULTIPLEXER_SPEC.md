@@ -122,8 +122,9 @@ Implementation notes:
   - TUI now polls active runtime buffer and supports direct text send to focused runtime window
   - Runtime mode config (`tmux|pty`) added and wired into bridge runtime selection
   - CLI commands (`new`, `attach`, `start`, `list`, `status`, `stop`) now branch by runtime mode
+  - Stabilization: runtime dispose on bridge stop + request-size guard coverage tests
 - Remaining:
-  - Stabilization and hardening for long-running daemon/runtime sessions
+  - (none in current scoped plan)
 
 
 ## 5.3 Daemon control API
@@ -215,7 +216,7 @@ Status:
 - Phase 3: in progress
 - Phase 4: done
 - Phase 5: done
-- Phase 6: in progress
+- Phase 6: done
 
 ## Phase 0 - Freeze spec and interfaces
 

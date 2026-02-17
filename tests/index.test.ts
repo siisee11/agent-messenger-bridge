@@ -89,6 +89,7 @@ function createMockTmux() {
     capturePane: vi.fn(),
     sessionExists: vi.fn(),
     listWindows: vi.fn(),
+    dispose: vi.fn(),
   } as any;
 }
 
@@ -541,9 +542,10 @@ describe('AgentBridge', () => {
   describe('stop', () => {
     it('stops hook server and disconnects messaging client', async () => {
       const mockMessaging = createMockMessaging();
+      const mockRuntime = createMockTmux();
       const bridge = new AgentBridge({
         messaging: mockMessaging,
-        tmux: createMockTmux(),
+        tmux: mockRuntime,
         stateManager: createMockStateManager(),
         registry: createMockRegistry(),
         config: createMockConfig(),
@@ -555,6 +557,7 @@ describe('AgentBridge', () => {
       // Now stop
       await bridge.stop();
 
+      expect(mockRuntime.dispose).toHaveBeenCalledWith('SIGTERM');
       expect(mockMessaging.disconnect).toHaveBeenCalledOnce();
     });
   });

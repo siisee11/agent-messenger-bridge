@@ -73,4 +73,8 @@ export class TmuxRuntime implements AgentRuntime {
       return false;
     }
   }
+
+  dispose(): void {
+    // tmux-backed runtime does not own process lifecycles directly.
+  }
 }

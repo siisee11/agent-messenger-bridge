@@ -265,6 +265,7 @@ export class AgentBridge {
 
   async stop(): Promise<void> {
     this.hookServer.stop();
+    this.runtime.dispose?.('SIGTERM');
     await this.messaging.disconnect();
   }
 }

@@ -18,4 +18,5 @@ export interface AgentRuntime {
   }>;
   getWindowBuffer?: (sessionName: string, windowName: string) => string;
   stopWindow?: (sessionName: string, windowName: string, signal?: NodeJS.Signals) => boolean;
+  dispose?: (signal?: NodeJS.Signals) => void;
 }

@@ -71,6 +71,31 @@ function getRequest(port: number, path: string): Promise<{ status: number; body:
   });
 }
 
+function postRaw(port: number, path: string, body: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode || 0, body: data }));
+      },
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 describe('BridgeHookServer', () => {
   let tempDir: string;
   let server: BridgeHookServer;
@@ -454,6 +479,17 @@ describe('BridgeHookServer', () => {
         req.end();
       });
       expect(res.status).toBe(405);
+    });
+  });
+
+  describe('request limits', () => {
+    it('returns 413 when body is too large', async () => {
+      startServer();
+      await new Promise((r) => setTimeout(r, 50));
+
+      const huge = JSON.stringify({ text: 'x'.repeat(300_000) });
+      const res = await postRaw(port, '/runtime/input', huge);
+      expect(res.status).toBe(413);
     });
   });
 
