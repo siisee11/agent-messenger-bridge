@@ -20,6 +20,7 @@ import {
   normalizeProjectState,
 } from './state/instances.js';
 import { installFileInstruction } from './infra/file-instruction.js';
+import { installDiscodeSendScript } from './infra/send-script.js';
 import { buildAgentLaunchEnv, buildExportPrefix, withClaudePluginDir } from './policy/agent-launch.js';
 import { installAgentIntegration } from './policy/agent-integration.js';
 import { toProjectScopedName } from './policy/window-naming.js';
@@ -58,7 +59,7 @@ export class AgentBridge {
     this.registry = deps?.registry || defaultAgentRegistry;
     this.codexSubmitter = deps?.codexSubmitter || new CodexSubmitter(this.tmux);
     this.pendingTracker = new PendingMessageTracker(this.messaging);
-    this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.messaging);
+    this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.messaging, this.bridgeConfig.hookServerPort || 18470);
     this.messageRouter = new BridgeMessageRouter({
       messaging: this.messaging,
       tmux: this.tmux,
@@ -199,12 +200,17 @@ export class AgentBridge {
       console.warn(message);
     }
 
-    // Install file-handling instructions for the agent
+    // Install file-handling instructions and discode-send script for the agent
     try {
       installFileInstruction(projectPath, adapter.config.name);
       console.log(`📎 Installed file instructions for ${adapter.config.displayName}`);
     } catch (error) {
       console.warn(`Failed to install file instructions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      installDiscodeSendScript(projectPath, { projectName, port });
+    } catch {
+      // Non-critical.
     }
 
     const exportPrefix = buildExportPrefix(buildAgentLaunchEnv({

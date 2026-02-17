@@ -1,5 +1,6 @@
 import type { MessagingClient } from '../messaging/interface.js';
 import { installFileInstruction } from '../infra/file-instruction.js';
+import { installDiscodeSendScript } from '../infra/send-script.js';
 import { installAgentIntegration } from '../policy/agent-integration.js';
 import type { IStateManager } from '../types/interfaces.js';
 import {
@@ -36,6 +37,7 @@ export class BridgeProjectBootstrap {
   constructor(
     private stateManager: IStateManager,
     private messaging: MessagingClient,
+    private hookServerPort: number = 18470,
   ) {}
 
   bootstrapProjects(): ReturnType<IStateManager['listProjects']> {
@@ -64,6 +66,15 @@ export class BridgeProjectBootstrap {
         } catch {
           // Non-critical.
         }
+      }
+
+      try {
+        installDiscodeSendScript(project.projectPath, {
+          projectName: project.projectName,
+          port: this.hookServerPort,
+        });
+      } catch {
+        // Non-critical.
       }
 
       const nextInstances: NonNullable<typeof project.instances> = { ...(project.instances || {}) };
@@ -104,6 +115,7 @@ export class BridgeProjectBootstrap {
 
   private registerMappings(projects: ReturnType<IStateManager['listProjects']>): ChannelMapping[] {
     const mappings = buildMappings(projects);
+    console.log(`[bootstrap-debug] Channel mappings: ${JSON.stringify(mappings.map(m => ({ ch: m.channelId, project: m.projectName, agent: m.agentType })))}`);
     if (mappings.length > 0) {
       this.messaging.registerChannelMappings(mappings);
     }

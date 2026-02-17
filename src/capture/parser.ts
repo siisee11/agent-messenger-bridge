@@ -173,6 +173,34 @@ const FILE_PATH_REGEX = new RegExp(
  * Scans the text for absolute file paths ending with known file
  * extensions and returns unique paths in order of first appearance.
  */
+/**
+ * Remove file paths from text to avoid leaking absolute paths in messages.
+ *
+ * For each path, removes occurrences in these forms:
+ * - Markdown image: `![...](path)`
+ * - Backtick-wrapped: `` `path` ``
+ * - Standalone path (possibly preceded by whitespace)
+ *
+ * After removal, collapses runs of 3+ newlines into double-newlines.
+ */
+export function stripFilePaths(text: string, filePaths: string[]): string {
+  let result = text;
+  for (const p of filePaths) {
+    const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Markdown image: ![any alt text](path)
+    result = result.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escaped}\\)`, 'g'), '');
+    // Backtick-wrapped: `path`
+    result = result.replace(new RegExp('`' + escaped + '`', 'g'), '');
+    // Standalone path (possibly with surrounding whitespace on the line)
+    result = result.replace(new RegExp(escaped, 'g'), '');
+  }
+  // Collapse 3+ consecutive newlines into 2
+  result = result.replace(/\n{3,}/g, '\n\n');
+  // Trim trailing whitespace on each line left empty by removal
+  result = result.replace(/^[ \t]+$/gm, '');
+  return result;
+}
+
 export function extractFilePaths(text: string): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();

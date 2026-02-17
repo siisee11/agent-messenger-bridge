@@ -23,17 +23,51 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-/** Marker that we embed so we can detect whether we've already injected. */
+/** Start marker embedded in instruction blocks. */
 const DISCODE_FILE_MARKER = '<!-- discode:file-instructions -->';
 
-/** Legacy marker for backward-compatible idempotency checks. */
+/** End marker — allows us to find and replace the section on updates. */
+const DISCODE_FILE_MARKER_END = '<!-- /discode:file-instructions -->';
+
+/** Legacy marker for backward-compatible detection. */
 const DISCODE_IMAGE_MARKER_LEGACY = '<!-- discode:image-instructions -->';
 
 /**
- * Check whether a file already contains either the current or legacy marker.
+ * All known start markers (current + legacy).
  */
-function hasMarker(content: string): boolean {
-  return content.includes(DISCODE_FILE_MARKER) || content.includes(DISCODE_IMAGE_MARKER_LEGACY);
+const ALL_START_MARKERS = [DISCODE_FILE_MARKER, DISCODE_IMAGE_MARKER_LEGACY];
+
+/**
+ * Replace the discode instruction section in existing file content, or
+ * append if not found.
+ *
+ * Handles:
+ * - New format (start + end markers): replace between markers
+ * - Old format (start marker only, no end marker): replace from start marker to EOF
+ * - Legacy marker: replace from legacy marker to EOF
+ * - No marker: append
+ */
+function replaceOrAppendSection(existing: string, newSection: string): string {
+  // Try each known start marker
+  for (const marker of ALL_START_MARKERS) {
+    const startIdx = existing.indexOf(marker);
+    if (startIdx === -1) continue;
+
+    const endIdx = existing.indexOf(DISCODE_FILE_MARKER_END, startIdx);
+    if (endIdx !== -1) {
+      // Found both start and end markers — replace the section
+      const before = existing.substring(0, startIdx);
+      const after = existing.substring(endIdx + DISCODE_FILE_MARKER_END.length);
+      return (before + newSection + after).replace(/\n{3,}/g, '\n\n');
+    }
+
+    // Only start marker found (old format) — replace from marker to EOF
+    const before = existing.substring(0, startIdx);
+    return (before + newSection).replace(/\n{3,}/g, '\n\n');
+  }
+
+  // No marker found — append
+  return existing + '\n' + newSection;
 }
 
 /**
@@ -44,64 +78,45 @@ export function getFileInstructionText(projectPath?: string): string {
     ? `${projectPath}/.discode/files/`
     : '.discode/files/';
 
+  const binDir = projectPath
+    ? `${projectPath}/.discode/bin/`
+    : '.discode/bin/';
+
   return `${DISCODE_FILE_MARKER}
-## Discord File Attachments
+## Discode — Discord/Slack Bridge
 
-### Receiving files from Discord
+You are connected to a Discord/Slack channel through **discode**.
 
-When a message from Discord contains file attachments, the files are
-automatically downloaded and referenced with markers in the following format:
+### Sending files to Discord — use \`discode-send\`
 
+The \`discode-send\` command is **pre-configured and ready to use**.
+**Do NOT explore the project or check settings before running it. Just run it immediately.**
+
+\`\`\`bash
+${binDir}discode-send ${filesDir}example.png
 \`\`\`
-[file:/absolute/path/to/file.pdf]
-\`\`\`
 
-**When you see \`[file:...]\` markers, you MUST:**
-1. Use your file reading tool (e.g. \`Read\`, \`view\`, \`cat\`) to open the
-   file at the given absolute path.
-2. Analyze or describe the file content as requested by the user.
-3. If multiple files are attached, read and process all of them.
+Multiple files: \`${binDir}discode-send ${filesDir}a.png ${filesDir}b.pdf\`
 
-The files are stored under the project's \`${filesDir}\` directory.
-Supported formats: PNG, JPEG, GIF, WebP, PDF, DOCX, PPTX, XLSX, CSV, JSON, TXT.
+- All arguments must be absolute paths
+- Save generated files to \`${filesDir}\` before sending
+- **Do NOT include absolute file paths in your response text** — just describe what you sent
+- Supported send formats: PNG, JPEG, GIF, WebP, SVG, BMP, PDF, DOCX, PPTX, XLSX, CSV, JSON, TXT
 
 ### The \`${filesDir}\` directory — ALWAYS CHECK HERE FIRST
 
-This directory is the **shared file workspace** for both receiving and sending
-files through Discord.
+This is the **shared file workspace** for receiving and sending files.
+When asked to send a file, you **MUST list the files in \`${filesDir}\` first** — it is almost certainly already there.
 
-**IMPORTANT:** When the user asks you to send, show, or share any file, image,
-document, or visual content, you **MUST list the files in \`${filesDir}\` first**
-before doing anything else (including web searches). The file the user is referring
-to is almost certainly already in this directory. Only search externally if the
-requested file does not exist here.
+### Receiving files from Discord
 
-### Sending files to Discord
-
-When you generate or create a file (e.g. charts, diagrams, screenshots,
-rendered output, PDFs, documents), **always save it to \`${filesDir}\`**. Any
-file whose absolute path appears in your response text is automatically sent
-as a Discord file attachment.
-
-Supported formats: PNG, JPEG, GIF, WebP, SVG, BMP, PDF, DOCX, PPTX, XLSX, CSV, JSON, TXT.
-
-**To send a generated file to Discord:**
-1. Save the file to \`${filesDir}\`.
-2. Mention the absolute file path in your response text.
-   For example: "Here is the chart I generated: \`${filesDir}chart.png\`"
-3. The system will automatically extract the path and attach the file
-   to the Discord message.
-
-**Tips:**
-- Use descriptive filenames (e.g. \`architecture-diagram.png\`, not \`output.png\`).
-- Always use absolute paths so the system can locate and send the file.
-- You can send multiple files by mentioning multiple paths in your response.
+File attachments are downloaded and referenced as: \`[file:/absolute/path/to/file.pdf]\`
+When you see \`[file:...]\` markers, you MUST read the file at that path.
+Supported formats: PNG, JPEG, GIF, WebP, PDF, DOCX, PPTX, XLSX, CSV, JSON, TXT.
 
 ### Python dependencies for document processing
 
-Processing PDF, DOCX, PPTX, XLSX files may require Python libraries (e.g.
-\`pymupdf\`, \`python-pptx\`, \`openpyxl\`, \`python-docx\`). When you need a
-library that is not installed, **always use a venv**:
+Use a venv for document processing libraries (\`pymupdf\`, \`python-pptx\`, \`openpyxl\`, \`python-docx\`):
 
 \`\`\`bash
 python3 -m venv ${filesDir}.venv
@@ -109,8 +124,9 @@ source ${filesDir}.venv/bin/activate
 pip install <package>
 \`\`\`
 
-Reuse the existing venv if \`${filesDir}.venv\` already exists. Never install
-packages globally with \`pip install\` outside of a venv.
+Reuse the existing venv if \`${filesDir}.venv\` exists. Never install
+packages globally outside of a venv.
+${DISCODE_FILE_MARKER_END}
 `;
 }
 
@@ -120,6 +136,9 @@ packages globally with \`pip install\` outside of a venv.
  * Claude Code automatically reads CLAUDE.md files in the project tree.
  * We write to `{projectPath}/.discode/CLAUDE.md` so we don't interfere
  * with the user's own CLAUDE.md at the project root.
+ *
+ * Since this file is fully owned by discode, we always overwrite with
+ * the latest instruction content.
  */
 export function installFileInstructionForClaude(projectPath: string): void {
   const discodeDir = join(projectPath, '.discode');
@@ -128,20 +147,16 @@ export function installFileInstructionForClaude(projectPath: string): void {
   const claudeMdPath = join(discodeDir, 'CLAUDE.md');
   const instruction = getFileInstructionText(projectPath);
 
-  if (existsSync(claudeMdPath)) {
-    const existing = readFileSync(claudeMdPath, 'utf-8');
-    if (hasMarker(existing)) return; // already installed
-    writeFileSync(claudeMdPath, existing + '\n' + instruction, 'utf-8');
-  } else {
-    writeFileSync(claudeMdPath, instruction, 'utf-8');
-  }
+  // .discode/CLAUDE.md is fully owned by discode — always overwrite.
+  writeFileSync(claudeMdPath, instruction, 'utf-8');
 }
 
 /**
  * Install file instructions for OpenCode.
  *
  * OpenCode reads `{projectPath}/.opencode/instructions.md` automatically
- * as system-level instructions.
+ * as system-level instructions. This file may contain user content, so
+ * we replace only the discode section.
  */
 export function installFileInstructionForOpencode(projectPath: string): void {
   const opencodeDir = join(projectPath, '.opencode');
@@ -152,8 +167,7 @@ export function installFileInstructionForOpencode(projectPath: string): void {
 
   if (existsSync(instructionsPath)) {
     const existing = readFileSync(instructionsPath, 'utf-8');
-    if (hasMarker(existing)) return; // already installed
-    writeFileSync(instructionsPath, existing + '\n' + instruction, 'utf-8');
+    writeFileSync(instructionsPath, replaceOrAppendSection(existing, instruction), 'utf-8');
   } else {
     writeFileSync(instructionsPath, instruction, 'utf-8');
   }
@@ -165,6 +179,7 @@ export function installFileInstructionForOpencode(projectPath: string): void {
  * Codex reads AGENTS.md at each directory level along the path from the
  * git root to the working directory.  It does NOT look inside `.codex/`
  * subdirectories, so we must write to `{projectPath}/AGENTS.md` directly.
+ * This file may contain user content, so we replace only the discode section.
  */
 export function installFileInstructionForCodex(projectPath: string): void {
   const agentsMdPath = join(projectPath, 'AGENTS.md');
@@ -172,8 +187,7 @@ export function installFileInstructionForCodex(projectPath: string): void {
 
   if (existsSync(agentsMdPath)) {
     const existing = readFileSync(agentsMdPath, 'utf-8');
-    if (hasMarker(existing)) return; // already installed
-    writeFileSync(agentsMdPath, existing + '\n' + instruction, 'utf-8');
+    writeFileSync(agentsMdPath, replaceOrAppendSection(existing, instruction), 'utf-8');
   } else {
     writeFileSync(agentsMdPath, instruction, 'utf-8');
   }
@@ -183,7 +197,7 @@ export function installFileInstructionForCodex(projectPath: string): void {
  * Install file instructions for any generic agent.
  *
  * Places the instructions at `{projectPath}/.discode/FILE_INSTRUCTIONS.md`
- * where agents can discover them.
+ * where agents can discover them. Fully owned by discode — always overwrite.
  */
 export function installFileInstructionGeneric(projectPath: string): void {
   const discodeDir = join(projectPath, '.discode');
@@ -192,11 +206,7 @@ export function installFileInstructionGeneric(projectPath: string): void {
   const instructionPath = join(discodeDir, 'FILE_INSTRUCTIONS.md');
   const instruction = getFileInstructionText(projectPath);
 
-  if (existsSync(instructionPath)) {
-    const existing = readFileSync(instructionPath, 'utf-8');
-    if (hasMarker(existing)) return;
-  }
-
+  // Fully owned by discode — always overwrite.
   writeFileSync(instructionPath, instruction, 'utf-8');
 }
 

@@ -1,4 +1,4 @@
-import { stripAnsi, cleanCapture, splitForDiscord, stripOuterCodeblock } from '../../src/capture/parser.js';
+import { stripAnsi, cleanCapture, splitForDiscord, stripOuterCodeblock, stripFilePaths } from '../../src/capture/parser.js';
 
 describe('stripAnsi', () => {
   it('returns plain text unchanged', () => {
@@ -244,5 +244,61 @@ describe('stripOuterCodeblock', () => {
 
   it('handles single backtick lines (not codeblock)', () => {
     expect(stripOuterCodeblock('`inline code`')).toBe('`inline code`');
+  });
+});
+
+describe('stripFilePaths', () => {
+  it('returns text unchanged when no file paths given', () => {
+    const text = 'Hello world';
+    expect(stripFilePaths(text, [])).toBe(text);
+  });
+
+  it('removes a standalone absolute path', () => {
+    const text = 'Here is the file: /home/user/project/.discode/files/chart.png done';
+    const result = stripFilePaths(text, ['/home/user/project/.discode/files/chart.png']);
+    expect(result).toBe('Here is the file:  done');
+    expect(result).not.toContain('/home/user');
+  });
+
+  it('removes a backtick-wrapped path', () => {
+    const text = 'Generated: `/tmp/output.png`';
+    const result = stripFilePaths(text, ['/tmp/output.png']);
+    expect(result).toBe('Generated: ');
+  });
+
+  it('removes a markdown image with the path', () => {
+    const text = 'See below:\n![chart](/tmp/chart.png)\nDone';
+    const result = stripFilePaths(text, ['/tmp/chart.png']);
+    expect(result).toBe('See below:\n\nDone');
+  });
+
+  it('removes multiple paths from text', () => {
+    const text = 'Files: `/tmp/a.png` and `/tmp/b.pdf`';
+    const result = stripFilePaths(text, ['/tmp/a.png', '/tmp/b.pdf']);
+    expect(result).toBe('Files:  and ');
+  });
+
+  it('collapses 3+ consecutive newlines into 2', () => {
+    const text = 'Hello\n\n\n\nWorld';
+    const result = stripFilePaths(text, []);
+    expect(result).toBe('Hello\n\nWorld');
+  });
+
+  it('collapses newlines left by path removal', () => {
+    const text = 'Before\n\n/tmp/file.png\n\nAfter';
+    const result = stripFilePaths(text, ['/tmp/file.png']);
+    expect(result).toBe('Before\n\nAfter');
+  });
+
+  it('handles path with regex special characters', () => {
+    const text = 'File: /tmp/output[1].png done';
+    const result = stripFilePaths(text, ['/tmp/output[1].png']);
+    expect(result).toBe('File:  done');
+  });
+
+  it('removes all occurrences of the same path', () => {
+    const text = 'See /tmp/f.png and also /tmp/f.png';
+    const result = stripFilePaths(text, ['/tmp/f.png']);
+    expect(result).toBe('See  and also ');
   });
 });

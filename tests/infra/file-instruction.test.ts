@@ -16,9 +16,10 @@ import {
 } from '../../src/infra/file-instruction.js';
 
 describe('getFileInstructionText', () => {
-  it('contains the discode marker', () => {
+  it('contains the start and end markers', () => {
     const text = getFileInstructionText();
     expect(text).toContain('<!-- discode:file-instructions -->');
+    expect(text).toContain('<!-- /discode:file-instructions -->');
   });
 
   it('documents the [file:...] marker format', () => {
@@ -48,7 +49,24 @@ describe('getFileInstructionText', () => {
   it('includes sending files to Discord instructions', () => {
     const text = getFileInstructionText();
     expect(text).toContain('Sending files to Discord');
-    expect(text).toContain('as a Discord file attachment');
+    expect(text).toContain('discode-send');
+  });
+
+  it('includes discode description header', () => {
+    const text = getFileInstructionText();
+    expect(text).toContain('Discode');
+    expect(text).toContain('Discord/Slack');
+  });
+
+  it('instructs not to include file paths in response text', () => {
+    const text = getFileInstructionText();
+    expect(text).toContain('Do NOT include absolute file paths in your response text');
+  });
+
+  it('emphasizes discode-send is pre-configured', () => {
+    const text = getFileInstructionText();
+    expect(text).toContain('pre-configured and ready to use');
+    expect(text).toContain('Do NOT explore the project or check settings');
   });
 
   it('describes the files directory as shared workspace with MUST-check rule', () => {
@@ -103,16 +121,19 @@ describe('installFileInstructionForClaude', () => {
     expect(content).toContain('Sending files to Discord');
   });
 
-  it('is idempotent (does not duplicate instruction)', () => {
-    installFileInstructionForClaude(tempDir);
+  it('always overwrites with latest content (discode-owned file)', () => {
+    const discodeDir = join(tempDir, '.discode');
+    mkdirSync(discodeDir, { recursive: true });
+    writeFileSync(join(discodeDir, 'CLAUDE.md'), '<!-- discode:file-instructions -->\nold content\n', 'utf-8');
+
     installFileInstructionForClaude(tempDir);
 
-    const content = readFileSync(join(tempDir, '.discode', 'CLAUDE.md'), 'utf-8');
-    const markerCount = (content.match(/<!-- discode:file-instructions -->/g) || []).length;
-    expect(markerCount).toBe(1);
+    const content = readFileSync(join(discodeDir, 'CLAUDE.md'), 'utf-8');
+    expect(content).toContain('discode-send');
+    expect(content).not.toContain('old content');
   });
 
-  it('skips if legacy image marker already present', () => {
+  it('overwrites even when legacy marker is present', () => {
     const discodeDir = join(tempDir, '.discode');
     mkdirSync(discodeDir, { recursive: true });
     writeFileSync(join(discodeDir, 'CLAUDE.md'), '<!-- discode:image-instructions -->\nold content\n', 'utf-8');
@@ -120,20 +141,18 @@ describe('installFileInstructionForClaude', () => {
     installFileInstructionForClaude(tempDir);
 
     const content = readFileSync(join(discodeDir, 'CLAUDE.md'), 'utf-8');
-    expect(content).not.toContain('<!-- discode:file-instructions -->');
-    expect(content).toContain('old content');
+    expect(content).toContain('<!-- discode:file-instructions -->');
+    expect(content).toContain('discode-send');
+    expect(content).not.toContain('old content');
   });
 
-  it('appends to existing CLAUDE.md without overwriting', () => {
-    const discodeDir = join(tempDir, '.discode');
-    mkdirSync(discodeDir, { recursive: true });
-    writeFileSync(join(discodeDir, 'CLAUDE.md'), '# Existing content\n', 'utf-8');
-
+  it('does not duplicate markers on repeated installs', () => {
+    installFileInstructionForClaude(tempDir);
     installFileInstructionForClaude(tempDir);
 
-    const content = readFileSync(join(discodeDir, 'CLAUDE.md'), 'utf-8');
-    expect(content).toContain('# Existing content');
-    expect(content).toContain('<!-- discode:file-instructions -->');
+    const content = readFileSync(join(tempDir, '.discode', 'CLAUDE.md'), 'utf-8');
+    const markerCount = (content.match(/<!-- discode:file-instructions -->/g) || []).length;
+    expect(markerCount).toBe(1);
   });
 });
 
@@ -159,16 +178,42 @@ describe('installFileInstructionForOpencode', () => {
     expect(content).toContain('<!-- discode:file-instructions -->');
   });
 
-  it('is idempotent', () => {
-    installFileInstructionForOpencode(tempDir);
+  it('replaces the discode section on re-install (preserves user content)', () => {
+    const opencodeDir = join(tempDir, '.opencode');
+    mkdirSync(opencodeDir, { recursive: true });
+    writeFileSync(
+      join(opencodeDir, 'instructions.md'),
+      '# My rules\n\n<!-- discode:file-instructions -->\nold discode content\n<!-- /discode:file-instructions -->\n\n# More rules\n',
+      'utf-8',
+    );
+
     installFileInstructionForOpencode(tempDir);
 
-    const content = readFileSync(join(tempDir, '.opencode', 'instructions.md'), 'utf-8');
-    const markerCount = (content.match(/<!-- discode:file-instructions -->/g) || []).length;
-    expect(markerCount).toBe(1);
+    const content = readFileSync(join(opencodeDir, 'instructions.md'), 'utf-8');
+    expect(content).toContain('# My rules');
+    expect(content).toContain('# More rules');
+    expect(content).toContain('discode-send');
+    expect(content).not.toContain('old discode content');
   });
 
-  it('appends to existing instructions.md', () => {
+  it('replaces old-format section (no end marker) on re-install', () => {
+    const opencodeDir = join(tempDir, '.opencode');
+    mkdirSync(opencodeDir, { recursive: true });
+    writeFileSync(
+      join(opencodeDir, 'instructions.md'),
+      '# My rules\n\n<!-- discode:file-instructions -->\nold stuff no end marker\n',
+      'utf-8',
+    );
+
+    installFileInstructionForOpencode(tempDir);
+
+    const content = readFileSync(join(opencodeDir, 'instructions.md'), 'utf-8');
+    expect(content).toContain('# My rules');
+    expect(content).toContain('discode-send');
+    expect(content).not.toContain('old stuff no end marker');
+  });
+
+  it('appends to existing instructions.md without marker', () => {
     const opencodeDir = join(tempDir, '.opencode');
     mkdirSync(opencodeDir, { recursive: true });
     writeFileSync(join(opencodeDir, 'instructions.md'), '# My rules\n', 'utf-8');
@@ -178,6 +223,15 @@ describe('installFileInstructionForOpencode', () => {
     const content = readFileSync(join(opencodeDir, 'instructions.md'), 'utf-8');
     expect(content).toContain('# My rules');
     expect(content).toContain('<!-- discode:file-instructions -->');
+  });
+
+  it('does not duplicate markers on repeated installs', () => {
+    installFileInstructionForOpencode(tempDir);
+    installFileInstructionForOpencode(tempDir);
+
+    const content = readFileSync(join(tempDir, '.opencode', 'instructions.md'), 'utf-8');
+    const markerCount = (content.match(/<!-- discode:file-instructions -->/g) || []).length;
+    expect(markerCount).toBe(1);
   });
 });
 
@@ -205,7 +259,23 @@ describe('installFileInstructionForCodex', () => {
     expect(content).toContain('shared file workspace');
   });
 
-  it('is idempotent', () => {
+  it('replaces the discode section on re-install (preserves user content)', () => {
+    writeFileSync(
+      join(tempDir, 'AGENTS.md'),
+      '# Project rules\n\n<!-- discode:file-instructions -->\nold content\n<!-- /discode:file-instructions -->\n\n# Footer\n',
+      'utf-8',
+    );
+
+    installFileInstructionForCodex(tempDir);
+
+    const content = readFileSync(join(tempDir, 'AGENTS.md'), 'utf-8');
+    expect(content).toContain('# Project rules');
+    expect(content).toContain('# Footer');
+    expect(content).toContain('discode-send');
+    expect(content).not.toContain('old content');
+  });
+
+  it('does not duplicate markers on repeated installs', () => {
     installFileInstructionForCodex(tempDir);
     installFileInstructionForCodex(tempDir);
 
@@ -214,7 +284,7 @@ describe('installFileInstructionForCodex', () => {
     expect(markerCount).toBe(1);
   });
 
-  it('appends to existing AGENTS.md', () => {
+  it('appends to existing AGENTS.md without marker', () => {
     writeFileSync(join(tempDir, 'AGENTS.md'), '# Project rules\n', 'utf-8');
 
     installFileInstructionForCodex(tempDir);
@@ -247,7 +317,7 @@ describe('installFileInstructionGeneric', () => {
     expect(content).toContain('<!-- discode:file-instructions -->');
   });
 
-  it('is idempotent', () => {
+  it('always overwrites with latest content (discode-owned file)', () => {
     installFileInstructionGeneric(tempDir);
     installFileInstructionGeneric(tempDir);
 

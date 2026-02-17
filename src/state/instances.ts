@@ -54,8 +54,13 @@ function normalizeInstanceMap(project: ProjectState): Record<string, ProjectInst
     const agentType = typeof rawValue.agentType === 'string' ? rawValue.agentType.trim() : '';
     if (!agentType) continue;
 
-    const channelId = typeof rawValue.channelId === 'string' && rawValue.channelId.trim().length > 0
-      ? rawValue.channelId
+    // Support both the current field name (`channelId`) and the legacy
+    // field name (`discordChannelId`) for backward compatibility with
+    // state files saved before the rename.
+    const raw = rawValue as unknown as Record<string, unknown>;
+    const rawChannelId = raw.channelId ?? raw.discordChannelId;
+    const channelId = typeof rawChannelId === 'string' && rawChannelId.trim().length > 0
+      ? rawChannelId
       : undefined;
 
     normalized[instanceId] = {

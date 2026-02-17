@@ -66,4 +66,24 @@ describe('claude plugin installer', () => {
     const stats = statSync(join(pluginDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME));
     expect(stats.mode & 0o755).toBe(0o755);
   });
+
+  it('source plugin directory contains discode-send skill', () => {
+    const sourceDir = getPluginSourceDir();
+    const skillPath = join(sourceDir, 'skills', 'discode-send', 'SKILL.md');
+    expect(existsSync(skillPath)).toBe(true);
+
+    const content = readFileSync(skillPath, 'utf-8');
+    expect(content).toContain('name: discode-send');
+    expect(content).toContain('discode-send');
+    expect(content).toContain('allowed-tools: Bash');
+    expect(content).toContain('Do NOT explore');
+  });
+
+  it('installClaudePlugin copies skill to target directory', () => {
+    const pluginDir = join(tempDir, CLAUDE_PLUGIN_NAME);
+    installClaudePlugin(undefined, pluginDir);
+
+    const skillPath = join(pluginDir, 'skills', 'discode-send', 'SKILL.md');
+    expect(existsSync(skillPath)).toBe(true);
+  });
 });
