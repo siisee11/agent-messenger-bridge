@@ -109,6 +109,16 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   let paletteInput: InputRenderable;
 
   const openProjects = createMemo(() => projects().filter((item) => item.open));
+  const quickSwitchWindows = createMemo(() =>
+    openProjects()
+      .slice()
+      .sort((a, b) => {
+        const bySession = a.session.localeCompare(b.session);
+        if (bySession !== 0) return bySession;
+        return a.window.localeCompare(b.window);
+      })
+      .slice(0, 9)
+  );
   const stoppableProjects = createMemo(() => {
     const names = new Set<string>();
     openProjects().forEach((item) => names.add(item.project));
@@ -293,6 +303,20 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     await props.input.onAttachProject(selectedSession.attachProject);
   };
 
+  const resolveCtrlNumberIndex = (evt: { ctrl?: boolean; name?: string }): number | null => {
+    if (!evt.ctrl) return null;
+    if (!evt.name || !/^[1-9]$/.test(evt.name)) return null;
+    const index = parseInt(evt.name, 10) - 1;
+    if (!Number.isFinite(index) || index < 0) return null;
+    return index;
+  };
+
+  const quickSwitchToIndex = async (index: number) => {
+    const item = quickSwitchWindows()[index];
+    if (!item) return;
+    await props.input.onAttachProject(item.project);
+  };
+
   const clampNewSelection = (offset: number) => {
     const items = newChoices();
     if (items.length === 0) return;
@@ -358,6 +382,15 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   };
 
   useKeyboard((evt) => {
+    const ctrlNumberIndex = resolveCtrlNumberIndex(evt);
+    if (ctrlNumberIndex !== null) {
+      if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen()) {
+        evt.preventDefault();
+        void quickSwitchToIndex(ctrlNumberIndex);
+      }
+      return;
+    }
+
     if (evt.ctrl && evt.name === 'p') {
       evt.preventDefault();
       if (!paletteOpen()) {
@@ -543,6 +576,13 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
                 <For each={sessionList().slice(0, 8)}>
                   {(item) => (
                     <text fg={palette.text}>{`- ${item.session} (${item.windows} windows)`}</text>
+                  )}
+                </For>
+              </Show>
+              <Show when={quickSwitchWindows().length > 0}>
+                <For each={quickSwitchWindows()}>
+                  {(item, index) => (
+                    <text fg={palette.muted}>{`Ctrl+${index() + 1} ${item.project} (${item.window})`}</text>
                   )}
                 </For>
               </Show>

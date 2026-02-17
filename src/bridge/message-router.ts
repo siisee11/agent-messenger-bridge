@@ -1,6 +1,6 @@
 import type { MessagingClient } from '../messaging/interface.js';
-import { TmuxManager } from '../tmux/manager.js';
 import type { IStateManager } from '../types/interfaces.js';
+import type { AgentRuntime } from '../runtime/interface.js';
 import {
   findProjectInstanceByChannel,
   getPrimaryInstanceForAgent,
@@ -12,7 +12,7 @@ import { PendingMessageTracker } from './pending-message-tracker.js';
 
 export interface BridgeMessageRouterDeps {
   messaging: MessagingClient;
-  tmux: TmuxManager;
+  runtime: AgentRuntime;
   stateManager: IStateManager;
   pendingTracker: PendingMessageTracker;
   sanitizeInput: (content: string) => string | null;
@@ -74,13 +74,13 @@ export class BridgeMessageRouter {
         await this.deps.pendingTracker.markPending(projectName, resolvedAgentType, channelId, messageId, instanceKey);
       }
 
-      try {
-        if (resolvedAgentType === 'opencode') {
-          await this.submitToOpencode(normalizedProject.tmuxSession, windowName, sanitized);
-        } else {
-          this.deps.tmux.sendKeysToWindow(normalizedProject.tmuxSession, windowName, sanitized, resolvedAgentType);
-        }
-      } catch (error) {
+        try {
+          if (resolvedAgentType === 'opencode') {
+            await this.submitToOpencode(normalizedProject.tmuxSession, windowName, sanitized);
+          } else {
+            this.deps.runtime.sendKeysToWindow(normalizedProject.tmuxSession, windowName, sanitized, resolvedAgentType);
+          }
+        } catch (error) {
         await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
         await messaging.sendToChannel(channelId, this.buildDeliveryFailureGuidance(projectName, error));
       }
@@ -103,10 +103,10 @@ export class BridgeMessageRouter {
   }
 
   private async submitToOpencode(tmuxSession: string, windowName: string, prompt: string): Promise<void> {
-    this.deps.tmux.typeKeysToWindow(tmuxSession, windowName, prompt.trimEnd(), 'opencode');
+    this.deps.runtime.typeKeysToWindow(tmuxSession, windowName, prompt.trimEnd(), 'opencode');
     const delayMs = this.getEnvInt('AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS', 75);
     await this.sleep(delayMs);
-    this.deps.tmux.sendEnterToWindow(tmuxSession, windowName, 'opencode');
+    this.deps.runtime.sendEnterToWindow(tmuxSession, windowName, 'opencode');
   }
 
   private buildDeliveryFailureGuidance(projectName: string, error: unknown): string {

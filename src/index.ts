@@ -6,6 +6,7 @@ import { DiscordClient } from './discord/client.js';
 import { SlackClient } from './slack/client.js';
 import type { MessagingClient } from './messaging/interface.js';
 import { TmuxManager } from './tmux/manager.js';
+import type { AgentRuntime } from './runtime/interface.js';
 import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
@@ -29,7 +30,9 @@ import { BridgeHookServer } from './bridge/hook-server.js';
 
 export interface AgentBridgeDeps {
   messaging?: MessagingClient;
+  /** @deprecated Use `runtime` instead. */
   tmux?: TmuxManager;
+  runtime?: AgentRuntime;
   stateManager?: IStateManager;
   registry?: AgentRegistry;
   config?: BridgeConfig;
@@ -37,7 +40,7 @@ export interface AgentBridgeDeps {
 
 export class AgentBridge {
   private messaging: MessagingClient;
-  private tmux: TmuxManager;
+  private runtime: AgentRuntime;
   private pendingTracker: PendingMessageTracker;
   private projectBootstrap: BridgeProjectBootstrap;
   private messageRouter: BridgeMessageRouter;
@@ -49,14 +52,14 @@ export class AgentBridge {
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
     this.messaging = deps?.messaging || this.createMessagingClient();
-    this.tmux = deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
+    this.runtime = deps?.runtime || deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
     this.pendingTracker = new PendingMessageTracker(this.messaging);
     this.projectBootstrap = new BridgeProjectBootstrap(this.stateManager, this.messaging, this.bridgeConfig.hookServerPort || 18470);
     this.messageRouter = new BridgeMessageRouter({
       messaging: this.messaging,
-      tmux: this.tmux,
+      runtime: this.runtime,
       stateManager: this.stateManager,
       pendingTracker: this.pendingTracker,
       sanitizeInput: (content) => this.sanitizeInput(content),
@@ -156,7 +159,7 @@ export class AgentBridge {
     // Create tmux session (shared mode)
     const sharedSessionName = this.bridgeConfig.tmux.sharedSessionName || 'bridge';
     const windowName = toProjectScopedName(projectName, adapter.config.name, instanceId);
-    const tmuxSession = this.tmux.getOrCreateSession(sharedSessionName, windowName);
+    const tmuxSession = this.runtime.getOrCreateSession(sharedSessionName, windowName);
 
     // Create Discord channel with custom name or default
     const channelName = channelDisplayName || toProjectScopedName(projectName, adapter.config.channelSuffix, instanceId);
@@ -172,7 +175,7 @@ export class AgentBridge {
 
     const port = overridePort || this.bridgeConfig.hookServerPort || 18470;
     // Avoid setting AGENT_DISCORD_PROJECT on shared session env (ambiguous across windows).
-    this.tmux.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
+    this.runtime.setSessionEnv(tmuxSession, 'AGENT_DISCORD_PORT', String(port));
 
     // Start agent in tmux window
     const permissionAllow = this.bridgeConfig.opencode?.permissionMode === 'allow';
@@ -206,7 +209,7 @@ export class AgentBridge {
     }));
     const startCommand = withClaudePluginDir(adapter.getStartCommand(projectPath, permissionAllow), integration.claudePluginDir);
 
-    this.tmux.startAgentInWindow(
+    this.runtime.startAgentInWindow(
       tmuxSession,
       windowName,
       `${exportPrefix}${startCommand}`
