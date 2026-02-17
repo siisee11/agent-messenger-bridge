@@ -40,6 +40,7 @@ type TuiInput = {
   onCommand: (command: string, append: (line: string) => void) => Promise<boolean | void>;
   onStopProject: (project: string) => Promise<void>;
   onAttachProject: (project: string) => Promise<{ currentSession?: string; currentWindow?: string } | void>;
+  getCurrentWindowOutput?: (sessionName: string, windowName: string) => Promise<string | undefined>;
   getProjects: () =>
     | Array<{
       project: string;
@@ -108,6 +109,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [stopSelected, setStopSelected] = createSignal(0);
   const [currentSession, setCurrentSession] = createSignal(props.input.currentSession);
   const [currentWindow, setCurrentWindow] = createSignal(props.input.currentWindow);
+  const [windowOutput, setWindowOutput] = createSignal('');
   const [projects, setProjects] = createSignal<Array<{
     project: string;
     session: string;
@@ -546,6 +548,17 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       const next = await props.input.getProjects();
       if (stopped) return;
       setProjects(next);
+
+      const session = currentSession();
+      const window = currentWindow();
+      if (!session || !window || !props.input.getCurrentWindowOutput) {
+        setWindowOutput('');
+        return;
+      }
+
+      const output = await props.input.getCurrentWindowOutput(session, window);
+      if (stopped) return;
+      setWindowOutput(output || '');
     };
     void refresh();
     const timer = setInterval(() => {
@@ -613,6 +626,21 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
                 </For>
               </Show>
               <text fg={palette.muted}>Use /list to attach quickly</text>
+            </box>
+          </box>
+
+          <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" marginTop={1}>
+            <box paddingLeft={1} paddingRight={1}>
+              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Active output</text>
+            </box>
+            <box paddingLeft={1} paddingRight={1} paddingBottom={1} flexDirection="column">
+              <Show when={windowOutput().trim().length > 0} fallback={<text fg={palette.muted}>No output yet</text>}>
+                <For each={windowOutput().split('\n').filter((line) => line.trim().length > 0).slice(-8)}>
+                  {(line) => (
+                    <text fg={palette.text}>{line.length > 120 ? `${line.slice(0, 117)}...` : line}</text>
+                  )}
+                </For>
+              </Show>
             </box>
           </box>
         </box>

@@ -119,8 +119,8 @@ Implementation notes:
   - Runtime unit tests added for tmux adapter and PTY runtime core
   - Daemon runtime control API endpoints added (`/runtime/windows`, `/runtime/focus`, `/runtime/input`, `/runtime/buffer`)
   - TUI command now attempts runtime-first window focus and project-open detection via daemon runtime API
+  - TUI now polls active runtime buffer and supports direct text send to focused runtime window
 - Remaining:
-  - TUI binding to runtime control-plane
   - Config/runtime-mode switch and CLI behavior migration
 
 
@@ -211,7 +211,7 @@ Status:
 - Phase 1: done
 - Phase 2: in progress
 - Phase 3: in progress
-- Phase 4: in progress
+- Phase 4: done
 - Phase 5-6: pending
 
 ## Phase 0 - Freeze spec and interfaces

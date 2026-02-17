@@ -33,6 +33,13 @@ type RuntimeWindowsPayload = {
   windows: RuntimeWindowPayload[];
 };
 
+type RuntimeBufferPayload = {
+  windowId: string;
+  since: number;
+  next: number;
+  chunk: string;
+};
+
 type HttpJsonResult = {
   status: number;
   body: string;
@@ -101,6 +108,24 @@ function parseRuntimeWindowsPayload(raw: string): RuntimeWindowsPayload | null {
     return {
       activeWindowId: typeof parsed.activeWindowId === 'string' ? parsed.activeWindowId : undefined,
       windows,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRuntimeBufferPayload(raw: string): RuntimeBufferPayload | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<RuntimeBufferPayload>;
+    if (typeof parsed.windowId !== 'string') return null;
+    if (typeof parsed.since !== 'number') return null;
+    if (typeof parsed.next !== 'number') return null;
+    if (typeof parsed.chunk !== 'string') return null;
+    return {
+      windowId: parsed.windowId,
+      since: parsed.since,
+      next: parsed.next,
+      chunk: parsed.chunk,
     };
   } catch {
     return null;
@@ -207,6 +232,8 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   let keepChannelOnStop = getConfigValue('keepChannelOnStop') === true;
   let runtimeSupported: boolean | undefined;
   let runtimeWindowsCache: RuntimeWindowsPayload | null = null;
+  const runtimeBufferOffsets = new Map<string, number>();
+  const runtimeBufferCache = new Map<string, string>();
 
   const fetchRuntimeWindows = async (): Promise<RuntimeWindowsPayload | null> => {
     try {
@@ -284,6 +311,43 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       sessionName: windowId.slice(0, idx),
       windowName: windowId.slice(idx + 1),
     };
+  };
+
+  const readRuntimeWindowOutput = async (sessionName: string, windowName: string): Promise<string | undefined> => {
+    if (runtimeSupported === false) {
+      return undefined;
+    }
+
+    const windowId = `${sessionName}:${windowName}`;
+    const since = runtimeBufferOffsets.get(windowId) || 0;
+    try {
+      const path = `/runtime/buffer?windowId=${encodeURIComponent(windowId)}&since=${since}`;
+      const result = await requestRuntimeApi({
+        port: runtimePort,
+        method: 'GET',
+        path,
+      });
+
+      if (result.status !== 200) {
+        if (result.status === 501 || result.status === 404 || result.status === 405) {
+          runtimeSupported = false;
+          return undefined;
+        }
+        return runtimeBufferCache.get(windowId);
+      }
+
+      const payload = parseRuntimeBufferPayload(result.body);
+      if (!payload) return runtimeBufferCache.get(windowId);
+
+      const nextOutput = `${runtimeBufferCache.get(windowId) || ''}${payload.chunk}`;
+      const trimmed = nextOutput.length > 32768 ? nextOutput.slice(nextOutput.length - 32768) : nextOutput;
+      runtimeBufferCache.set(windowId, trimmed);
+      runtimeBufferOffsets.set(windowId, payload.next);
+      runtimeSupported = true;
+      return trimmed;
+    } catch {
+      return runtimeBufferCache.get(windowId);
+    }
   };
 
   const handler = async (command: string, append: (line: string) => void): Promise<boolean> => {
@@ -542,8 +606,29 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       }
     }
 
+    if (runtimeSupported !== false) {
+      const focusedWindowId = runtimeWindowsCache?.activeWindowId;
+      if (focusedWindowId) {
+        const sent = await requestRuntimeApi({
+          port: runtimePort,
+          method: 'POST',
+          path: '/runtime/input',
+          payload: {
+            windowId: focusedWindowId,
+            text: command,
+            submit: true,
+          },
+        }).catch(() => ({ status: 0, body: '' }));
+
+        if (sent.status === 200) {
+          append(`→ sent to ${focusedWindowId}`);
+          return false;
+        }
+      }
+    }
+
     append(`Unknown command: ${command}`);
-    append('Try /help');
+    append('Try /help (or focus a runtime window to send direct input)');
     return false;
   };
 
@@ -691,6 +776,9 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             open: windowUp,
           };
         });
+      },
+      getCurrentWindowOutput: async (sessionName: string, windowName: string) => {
+        return readRuntimeWindowOutput(sessionName, windowName);
       },
     });
   } finally {
