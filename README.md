@@ -444,6 +444,20 @@ const daemon = new DaemonManager(mockStorage);
 2. Check daemon logs
 3. Check Discord channel permissions (bot needs Send Messages)
 
+### Tip: Keep running with lid closed (macOS)
+
+If you want Discode to keep working when the laptop lid is closed on battery power, run:
+
+```bash
+sudo pmset -b disablesleep 1
+```
+
+To revert to normal sleep behavior:
+
+```bash
+sudo pmset -b disablesleep 0
+```
+
 ## Contributing
 
 Contributions are welcome! Please:

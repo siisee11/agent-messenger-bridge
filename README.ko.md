@@ -451,6 +451,20 @@ const daemon = new DaemonManager(mockStorage);
 2. 데몬 로그 확인
 3. Discord 채널 권한 확인 (봇에게 Send Messages 권한 필요)
 
+### 팁: 노트북을 닫아도 계속 실행하기 (macOS)
+
+배터리 전원 상태에서 노트북 덮개를 닫아도 Discode가 계속 동작하게 하려면 다음 명령을 실행하세요:
+
+```bash
+sudo pmset -b disablesleep 1
+```
+
+기본 절전 동작으로 되돌리려면:
+
+```bash
+sudo pmset -b disablesleep 0
+```
+
 ## 기여
 
 기여를 환영합니다! 다음 절차를 따라주세요:
