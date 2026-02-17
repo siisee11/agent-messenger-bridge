@@ -5,8 +5,8 @@
 import { DiscordClient } from './discord/client.js';
 import { SlackClient } from './slack/client.js';
 import type { MessagingClient } from './messaging/interface.js';
-import { TmuxManager } from './tmux/manager.js';
 import type { AgentRuntime } from './runtime/interface.js';
+import { TmuxRuntime } from './runtime/tmux-runtime.js';
 import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
@@ -31,7 +31,7 @@ import { BridgeHookServer } from './bridge/hook-server.js';
 export interface AgentBridgeDeps {
   messaging?: MessagingClient;
   /** @deprecated Use `runtime` instead. */
-  tmux?: TmuxManager;
+  tmux?: AgentRuntime;
   runtime?: AgentRuntime;
   stateManager?: IStateManager;
   registry?: AgentRegistry;
@@ -52,7 +52,7 @@ export class AgentBridge {
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
     this.messaging = deps?.messaging || this.createMessagingClient();
-    this.runtime = deps?.runtime || deps?.tmux || new TmuxManager(this.bridgeConfig.tmux.sessionPrefix);
+    this.runtime = deps?.runtime || deps?.tmux || TmuxRuntime.create(this.bridgeConfig.tmux.sessionPrefix);
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
     this.pendingTracker = new PendingMessageTracker(this.messaging);
@@ -84,7 +84,7 @@ export class AgentBridge {
   }
 
   /**
-   * Sanitize message input before passing to tmux
+   * Sanitize message input before passing to runtime
    */
   public sanitizeInput(content: string): string | null {
     // Reject empty/whitespace-only messages

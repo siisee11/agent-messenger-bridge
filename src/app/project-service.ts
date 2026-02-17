@@ -2,12 +2,13 @@ import { request as httpRequest } from 'http';
 import { AgentBridge } from '../index.js';
 import { stateManager, type ProjectState } from '../state/index.js';
 import type { BridgeConfig, ProjectInstanceState } from '../types/index.js';
-import { TmuxManager } from '../tmux/manager.js';
 import { agentRegistry } from '../agents/index.js';
 import { normalizeProjectState } from '../state/instances.js';
 import { buildAgentLaunchEnv, buildExportPrefix, withClaudePluginDir } from '../policy/agent-launch.js';
 import { installAgentIntegration } from '../policy/agent-integration.js';
 import { resolveProjectWindowName } from '../policy/window-naming.js';
+import type { AgentRuntime } from '../runtime/interface.js';
+import { TmuxRuntime } from '../runtime/tmux-runtime.js';
 
 export async function setupProjectInstance(params: {
   config: BridgeConfig;
@@ -67,6 +68,7 @@ export async function resumeProjectInstance(params: {
   project: ProjectState;
   instance: ProjectInstanceState;
   port: number;
+  runtime?: AgentRuntime;
 }): Promise<{
   windowName: string;
   restoredWindow: boolean;
@@ -76,22 +78,22 @@ export async function resumeProjectInstance(params: {
   const infoMessages: string[] = [];
   const warningMessages: string[] = [];
 
-  const tmux = new TmuxManager(params.config.tmux.sessionPrefix);
+  const runtime = params.runtime || TmuxRuntime.create(params.config.tmux.sessionPrefix);
   const fullSessionName = params.project.tmuxSession;
   const prefix = params.config.tmux.sessionPrefix;
   if (fullSessionName.startsWith(prefix)) {
-    tmux.getOrCreateSession(fullSessionName.slice(prefix.length));
+    runtime.getOrCreateSession(fullSessionName.slice(prefix.length));
   }
 
   const sharedFull = `${prefix}${params.config.tmux.sharedSessionName || 'bridge'}`;
   const isSharedSession = fullSessionName === sharedFull;
   if (!isSharedSession) {
-    tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PROJECT', params.projectName);
+    runtime.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PROJECT', params.projectName);
   }
-  tmux.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(params.port));
+  runtime.setSessionEnv(fullSessionName, 'AGENT_DISCORD_PORT', String(params.port));
 
   const windowName = resolveProjectWindowName(params.project, params.instance.agentType, params.config.tmux, params.instance.instanceId);
-  if (tmux.windowExists(fullSessionName, windowName)) {
+  if (runtime.windowExists(fullSessionName, windowName)) {
     return {
       windowName,
       restoredWindow: false,
@@ -135,8 +137,8 @@ export async function resumeProjectInstance(params: {
       permissionAllow: !!permissionAllow,
     })) + baseCommand;
 
-  tmux.startAgentInWindow(fullSessionName, windowName, startCommand);
-  infoMessages.push(`Restored missing tmux window: ${windowName}`);
+  runtime.startAgentInWindow(fullSessionName, windowName, startCommand);
+  infoMessages.push(`Restored missing runtime window: ${windowName}`);
 
   if (hookEnabled && !params.instance.eventHook) {
     const normalizedProject = normalizeProjectState(params.project);
