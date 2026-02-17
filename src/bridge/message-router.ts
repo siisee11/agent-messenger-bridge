@@ -94,10 +94,7 @@ export class BridgeMessageRouter {
         }
       } catch (error) {
         await this.deps.pendingTracker.markError(projectName, resolvedAgentType, instanceKey);
-        await messaging.sendToChannel(
-          channelId,
-          `⚠️ tmux로 메시지 전달 실패: ${error instanceof Error ? error.message : String(error)}`
-        );
+        await messaging.sendToChannel(channelId, this.buildDeliveryFailureGuidance(projectName, error));
       }
 
       this.deps.stateManager.updateLastActive(projectName);
@@ -122,5 +119,25 @@ export class BridgeMessageRouter {
     const delayMs = this.getEnvInt('AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS', 75);
     await this.sleep(delayMs);
     this.deps.tmux.sendEnterToWindow(tmuxSession, windowName, 'opencode');
+  }
+
+  private buildDeliveryFailureGuidance(projectName: string, error: unknown): string {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const missingTarget = /can't find (window|pane)/i.test(rawMessage);
+
+    if (missingTarget) {
+      return (
+        `⚠️ I couldn't deliver your message because the agent tmux window is not running.\n` +
+        `Please restart the agent session, then send your message again:\n` +
+        `1) \`discode new --name ${projectName}\`\n` +
+        `2) \`discode attach ${projectName}\``
+      );
+    }
+
+    return (
+      `⚠️ I couldn't deliver your message to the tmux agent session.\n` +
+      `Please confirm the agent is running, then try again.\n` +
+      `If needed, restart with \`discode new --name ${projectName}\`.`
+    );
   }
 }

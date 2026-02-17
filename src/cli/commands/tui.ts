@@ -1,5 +1,7 @@
 import { basename } from 'path';
 import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { config, getConfigValue, saveConfig, validateConfig } from '../../config/index.js';
 import { stateManager } from '../../state/index.js';
@@ -349,9 +351,14 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   ];
   let mod: any;
   for (const candidate of sourceCandidates) {
+    const candidatePath = fileURLToPath(candidate);
+    if (!existsSync(candidatePath)) continue;
     try {
-      mod = await import(candidate.href);
-      break;
+      const loaded = await import(candidate.href);
+      if (loaded && typeof loaded.runTui === 'function') {
+        mod = loaded;
+        break;
+      }
     } catch {
       // try next candidate
     }

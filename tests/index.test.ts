@@ -474,6 +474,45 @@ describe('AgentBridge', () => {
       expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'test-project-opencode', 'opencode');
       expect(mockTmux.sendKeysToWindow).not.toHaveBeenCalled();
     });
+
+    it('shows English recovery guidance when tmux window is missing', async () => {
+      process.env.AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS = '0';
+
+      const mockTmux = createMockTmux();
+      mockTmux.typeKeysToWindow.mockImplementation(() => {
+        throw new Error(
+          "Failed to type keys to window 'discode-opencode' in session 'bridge': Command failed: tmux send-keys -t 'bridge:discode-opencode' 'hi'\ncan't find window: discode-opencode",
+        );
+      });
+      bridge = new AgentBridge({
+        messaging: mockMessaging,
+        tmux: mockTmux,
+        stateManager: mockStateManager,
+        registry: createMockRegistry(),
+        config: createMockConfig(),
+      });
+
+      mockStateManager.getProject.mockReturnValue({
+        projectName: 'discode',
+        projectPath: '/test',
+        tmuxSession: 'bridge',
+        tmuxWindows: { opencode: 'discode-opencode' },
+        discordChannels: { opencode: 'ch-123' },
+        agents: { opencode: true },
+        createdAt: new Date(),
+        lastActive: new Date(),
+      });
+
+      await bridge.start();
+      const cb = mockMessaging.onMessage.mock.calls[0][0];
+      await cb('opencode', 'hi', 'discode', 'ch-123');
+
+      const lastNotice = String(mockMessaging.sendToChannel.mock.calls.at(-1)?.[1] ?? '');
+      expect(lastNotice).toContain('agent tmux window is not running');
+      expect(lastNotice).toContain('discode new --name discode');
+      expect(lastNotice).toContain('discode attach discode');
+      expect(lastNotice).not.toContain("can't find window");
+    });
   });
 
   describe('setupProject', () => {

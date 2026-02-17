@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, extname, resolve } from 'path';
 import chalk from 'chalk';
 import type { BridgeConfig } from '../../types/index.js';
 import { TmuxManager } from '../../tmux/manager.js';
@@ -38,6 +38,24 @@ const TUI_PROCESS_COMMAND_MARKERS = ['/dist/bin/discode.js tui', '/bin/discode.j
 
 function isDiscodeTuiProcess(command: string): boolean {
   return TUI_PROCESS_COMMAND_MARKERS.some((marker) => command.includes(marker));
+}
+
+function resolveBunCommand(): string {
+  if ((process as { versions?: { bun?: string } }).versions?.bun && process.execPath) {
+    return process.execPath;
+  }
+
+  try {
+    const output = execSync('command -v bun', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+    }).trim();
+    if (output.length > 0) return output;
+  } catch {
+    // Fallback to PATH lookup at execution time.
+  }
+
+  return 'bun';
 }
 
 function listPanePids(target: string): number[] {
@@ -255,24 +273,60 @@ export function pruneStaleProjects(tmux: TmuxManager, tmuxConfig: BridgeConfig['
 export function ensureProjectTuiPane(
   tmux: TmuxManager,
   sessionName: string,
-  _windowName: string,
+  windowName: string,
   options: TmuxCliOptions,
 ): void {
-  const discodeRunner = resolve(import.meta.dirname, '../../../bin/discode.js');
   const argvRunner = process.argv[1] ? resolve(process.argv[1]) : undefined;
-  const isScriptRunner = (path: string): boolean => /\.[cm]?[jt]sx?$/.test(path);
-  let commandParts: string[];
-  if (existsSync(discodeRunner)) {
-    commandParts = ['bun', discodeRunner, 'tui'];
-  } else if (argvRunner && existsSync(argvRunner)) {
-    commandParts = isScriptRunner(argvRunner)
-      ? ['bun', argvRunner, 'tui']
-      : [argvRunner, 'tui'];
-  } else {
-    commandParts = [process.execPath, 'tui'];
+  const bunCommand = resolveBunCommand();
+  const scriptRunnerExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx']);
+  let commandParts: string[] | undefined;
+
+  if (argvRunner && existsSync(argvRunner)) {
+    const runnerExt = extname(argvRunner).toLowerCase();
+    if (scriptRunnerExtensions.has(runnerExt)) {
+      commandParts = [bunCommand, argvRunner, 'tui'];
+    } else {
+      const runnerDir = dirname(argvRunner);
+      const sourceRunner = resolve(runnerDir, 'discode.ts');
+      const distRunner = resolve(runnerDir, '../dist/bin/discode.js');
+      if (existsSync(sourceRunner)) {
+        commandParts = [bunCommand, sourceRunner, 'tui'];
+      } else if (existsSync(distRunner)) {
+        commandParts = [bunCommand, distRunner, 'tui'];
+      } else {
+        commandParts = [argvRunner, 'tui'];
+      }
+    }
   }
+
+  if (!commandParts) {
+    const fallbackRunners = [
+      resolve(import.meta.dirname, '../../../dist/bin/discode.js'),
+      resolve(import.meta.dirname, '../../../bin/discode.ts'),
+      resolve(import.meta.dirname, '../../../bin/discode.js'),
+    ];
+    const fallbackRunner = fallbackRunners.find((runner) => existsSync(runner));
+    commandParts = fallbackRunner ? [bunCommand, fallbackRunner, 'tui'] : [process.execPath, 'tui'];
+  }
+
   if (options.tmuxSharedSessionName) {
     commandParts.push('--tmux-shared-session-name', options.tmuxSharedSessionName);
   }
-  tmux.ensureTuiPane(sessionName, '0', commandParts);
+  const primaryWindowName = '0';
+  if (!tmux.windowExists(sessionName, primaryWindowName) && windowName !== primaryWindowName) {
+    tmux.ensureWindowAtIndex(sessionName, 0);
+  }
+
+  try {
+    tmux.ensureTuiPane(sessionName, primaryWindowName, commandParts);
+    return;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const missingWindowZero = /can't find window:\s*0\b/.test(errorMessage);
+    if (!missingWindowZero || windowName === primaryWindowName) {
+      throw error;
+    }
+  }
+
+  tmux.ensureTuiPane(sessionName, windowName, commandParts);
 }

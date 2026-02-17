@@ -195,6 +195,42 @@ describe('TmuxManager', () => {
     });
   });
 
+  describe('ensureWindowAtIndex', () => {
+    it('does nothing when target index already exists', () => {
+      tmux.ensureWindowAtIndex('agent-session', 0);
+
+      expect(executor.calls).toHaveLength(1);
+      expect(executor.calls[0].method).toBe('execVoid');
+      expect(executor.calls[0].command).toContain("tmux list-panes -t 'agent-session:0'");
+      expect(executor.calls.some((call) => call.command.includes('tmux new-window'))).toBe(false);
+    });
+
+    it('creates target index when missing', () => {
+      executor.throwOnce = new Error('window not found');
+      tmux.ensureWindowAtIndex('agent-session', 0);
+
+      expect(executor.calls).toHaveLength(2);
+      expect(executor.calls[0].method).toBe('execVoid');
+      expect(executor.calls[1].method).toBe('exec');
+      expect(executor.calls[1].command).toContain("tmux new-window -d -t 'agent-session:0' -n 'discode-control'");
+    });
+
+    it('throws when window creation fails and index still missing', () => {
+      executor.execVoid = (command: string) => {
+        executor.calls.push({ method: 'execVoid', command });
+        throw new Error('window not found');
+      };
+      executor.exec = (command: string) => {
+        executor.calls.push({ method: 'exec', command });
+        throw new Error('create failed');
+      };
+
+      expect(() => tmux.ensureWindowAtIndex('agent-session', 0)).toThrow(
+        "Failed to create window index '0' in session 'agent-session': create failed",
+      );
+    });
+  });
+
   describe('listWindows', () => {
     it('returns parsed window names', () => {
       executor.nextResult = 'window1\nwindow2\nwindow3\n';

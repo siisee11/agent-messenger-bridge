@@ -198,6 +198,24 @@ export class TmuxManager {
     }
   }
 
+  ensureWindowAtIndex(sessionName: string, windowIndex: number, windowName: string = 'discode-control'): void {
+    const indexName = String(windowIndex);
+    if (this.windowExists(sessionName, indexName)) return;
+
+    const escapedTarget = escapeShellArg(`${sessionName}:${windowIndex}`);
+    const escapedWindowName = escapeShellArg(windowName);
+
+    try {
+      this.executor.exec(`tmux new-window -d -t ${escapedTarget} -n ${escapedWindowName}`);
+      return;
+    } catch (error) {
+      if (this.windowExists(sessionName, indexName)) return;
+      throw new Error(
+        `Failed to create window index '${windowIndex}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   /**
    * List all windows in a session
    * @param sessionName Full session name (already includes prefix)

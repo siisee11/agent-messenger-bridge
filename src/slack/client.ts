@@ -33,24 +33,14 @@ export class SlackClient implements MessagingClient {
     // Listen for messages in channels
     this.app.message(async ({ message }) => {
       // Only handle regular user messages (not bot messages, not system events)
-      if (!('user' in message)) {
-        console.log(`[slack-debug] Skipping message without user field, keys=${Object.keys(message as any).join(',')}`);
-        return;
-      }
+      if (!('user' in message)) return;
       const subtype = 'subtype' in message ? message.subtype : undefined;
-      if (subtype && subtype !== 'file_share') {
-        console.log(`[slack-debug] Skipping message with subtype=${subtype}`);
-        return;
-      }
+      if (subtype && subtype !== 'file_share') return;
       // Skip bot messages
-      if ('bot_id' in message && message.bot_id) {
-        console.log(`[slack-debug] Skipping bot message`);
-        return;
-      }
+      if ('bot_id' in message && message.bot_id) return;
 
       const channelId = message.channel;
       const channelInfo = this.channelMapping.get(channelId);
-      console.log(`[slack-debug] Received message in channel=${channelId}, mapping=${channelInfo ? JSON.stringify(channelInfo) : 'NOT FOUND'}, mappingSize=${this.channelMapping.size}, callback=${!!this.messageCallback}`);
       if (channelInfo && this.messageCallback) {
         try {
           // Extract file attachments if present
