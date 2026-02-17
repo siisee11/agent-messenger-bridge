@@ -11,10 +11,14 @@ import {
   ensureTmuxInstalled,
   resolveProjectWindowName,
 } from '../common/tmux.js';
+import { focusRuntimeWindow } from '../common/runtime-api.js';
 
-export function attachCommand(projectName: string | undefined, options: TmuxCliOptions & { instance?: string }) {
-  ensureTmuxInstalled();
+export async function attachCommand(projectName: string | undefined, options: TmuxCliOptions & { instance?: string }) {
   const effectiveConfig = applyTmuxCliOverrides(config, options);
+  const runtimeMode = effectiveConfig.runtimeMode || 'tmux';
+  if (runtimeMode === 'tmux') {
+    ensureTmuxInstalled();
+  }
   const tmux = new TmuxManager(effectiveConfig.tmux.sessionPrefix);
 
   if (!projectName) {
@@ -48,6 +52,20 @@ export function attachCommand(projectName: string | undefined, options: TmuxCliO
       ? resolveProjectWindowName(project, firstInstance.agentType, effectiveConfig.tmux, firstInstance.instanceId)
       : undefined;
   const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
+
+  if (runtimeMode === 'pty') {
+    if (windowName) {
+      const windowId = `${sessionName}:${windowName}`;
+      const focused = await focusRuntimeWindow(effectiveConfig.hookServerPort || 18470, windowId);
+      if (!focused) {
+        console.log(chalk.yellow('⚠️ Could not focus runtime window.'));
+      }
+    }
+
+    const { tuiCommand } = await import('./tui.js');
+    await tuiCommand(options);
+    return;
+  }
 
   if (!tmux.sessionExistsFull(sessionName)) {
     console.error(chalk.red(`Session ${sessionName} not found`));

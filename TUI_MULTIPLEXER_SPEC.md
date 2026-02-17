@@ -120,8 +120,10 @@ Implementation notes:
   - Daemon runtime control API endpoints added (`/runtime/windows`, `/runtime/focus`, `/runtime/input`, `/runtime/buffer`)
   - TUI command now attempts runtime-first window focus and project-open detection via daemon runtime API
   - TUI now polls active runtime buffer and supports direct text send to focused runtime window
+  - Runtime mode config (`tmux|pty`) added and wired into bridge runtime selection
+  - CLI commands (`new`, `attach`, `start`, `list`, `status`, `stop`) now branch by runtime mode
 - Remaining:
-  - Config/runtime-mode switch and CLI behavior migration
+  - Stabilization and hardening for long-running daemon/runtime sessions
 
 
 ## 5.3 Daemon control API
@@ -212,7 +214,8 @@ Status:
 - Phase 2: in progress
 - Phase 3: in progress
 - Phase 4: done
-- Phase 5-6: pending
+- Phase 5: done
+- Phase 6: in progress
 
 ## Phase 0 - Freeze spec and interfaces
 

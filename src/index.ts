@@ -7,6 +7,7 @@ import { SlackClient } from './slack/client.js';
 import type { MessagingClient } from './messaging/interface.js';
 import type { AgentRuntime } from './runtime/interface.js';
 import { TmuxRuntime } from './runtime/tmux-runtime.js';
+import { PtyRuntime } from './runtime/pty-runtime.js';
 import { stateManager as defaultStateManager } from './state/index.js';
 import { config as defaultConfig } from './config/index.js';
 import { agentRegistry as defaultAgentRegistry, AgentRegistry } from './agents/index.js';
@@ -52,7 +53,7 @@ export class AgentBridge {
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
     this.messaging = deps?.messaging || this.createMessagingClient();
-    this.runtime = deps?.runtime || deps?.tmux || TmuxRuntime.create(this.bridgeConfig.tmux.sessionPrefix);
+    this.runtime = deps?.runtime || deps?.tmux || this.createRuntime();
     this.stateManager = deps?.stateManager || defaultStateManager;
     this.registry = deps?.registry || defaultAgentRegistry;
     this.pendingTracker = new PendingMessageTracker(this.messaging);
@@ -72,6 +73,13 @@ export class AgentBridge {
       runtime: this.runtime,
       reloadChannelMappings: () => this.projectBootstrap.reloadChannelMappings(),
     });
+  }
+
+  private createRuntime(): AgentRuntime {
+    if (this.bridgeConfig.runtimeMode === 'pty') {
+      return new PtyRuntime();
+    }
+    return TmuxRuntime.create(this.bridgeConfig.tmux.sessionPrefix);
   }
 
   private createMessagingClient(): MessagingClient {

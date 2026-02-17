@@ -112,6 +112,22 @@ export class BridgeHookServer {
               return;
             }
 
+            if (pathname === '/runtime/stop') {
+              let payload: unknown;
+              try {
+                payload = body ? JSON.parse(body) : {};
+              } catch {
+                res.writeHead(400);
+                res.end('Invalid JSON');
+                return;
+              }
+
+              const result = this.handleRuntimeStop(payload);
+              res.writeHead(result.status);
+              res.end(result.message);
+              return;
+            }
+
             if (pathname === '/send-files') {
               let payload: unknown;
               try {
@@ -272,6 +288,36 @@ export class BridgeHookServer {
         return;
       }
       this.writeJson(res, 400, { error: message });
+    }
+  }
+
+  private handleRuntimeStop(payload: unknown): { status: number; message: string } {
+    if (!this.runtimeControl.isEnabled()) {
+      return { status: 501, message: 'Runtime control unavailable' };
+    }
+    if (!payload || typeof payload !== 'object') {
+      return { status: 400, message: 'Invalid payload' };
+    }
+
+    const windowId = typeof (payload as Record<string, unknown>).windowId === 'string'
+      ? ((payload as Record<string, unknown>).windowId as string)
+      : undefined;
+    if (!windowId) {
+      return { status: 400, message: 'Missing windowId' };
+    }
+
+    try {
+      this.runtimeControl.stopWindow(windowId);
+      return { status: 200, message: 'OK' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Window not found') || message.includes('Invalid windowId')) {
+        return { status: 404, message: 'Window not found' };
+      }
+      if (message.includes('Runtime stop unavailable')) {
+        return { status: 501, message: 'Runtime stop unavailable' };
+      }
+      return { status: 400, message };
     }
   }
 

@@ -279,6 +279,7 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
         .option('port', { alias: 'p', type: 'string', describe: 'Set hook server port' })
         .option('default-agent', { type: 'string', describe: 'Set default AI CLI for `discode new`' })
         .option('platform', { type: 'string', choices: ['discord', 'slack'], describe: 'Set messaging platform' })
+        .option('runtime-mode', { type: 'string', choices: ['tmux', 'pty'], describe: 'Set runtime backend' })
         .option('slack-bot-token', { type: 'string', describe: 'Set Slack bot token (xoxb-...)' })
         .option('slack-app-token', { type: 'string', describe: 'Set Slack app-level token (xapp-...)' })
         .option('opencode-permission', {
@@ -297,6 +298,7 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
           defaultAgent: argv.defaultAgent,
           opencodePermission: argv.opencodePermission,
           platform: argv.platform,
+          runtimeMode: argv.runtimeMode,
           slackBotToken: argv.slackBotToken,
           slackAppToken: argv.slackAppToken,
         })
@@ -305,8 +307,8 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       'status',
       'Show bridge and project status',
       (y: Argv) => addTmuxOptions(y),
-      (argv: any) =>
-        statusCommand({
+      async (argv: any) =>
+        await statusCommand({
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
         })
     )
@@ -314,13 +316,13 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       'list',
       'List all configured projects',
       (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-      (argv: any) => listCommand({ prune: argv.prune })
+      async (argv: any) => await listCommand({ prune: argv.prune })
     )
     .command(
       'ls',
       false,
       (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-      (argv: any) => listCommand({ prune: argv.prune })
+      async (argv: any) => await listCommand({ prune: argv.prune })
     )
     .command('agents', 'List available AI agent adapters', () => {}, () => agentsCommand())
     .command(
@@ -329,8 +331,8 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       (y: Argv) => addTmuxOptions(y)
         .positional('project', { type: 'string' })
         .option('instance', { type: 'string', describe: 'Attach specific instance ID' }),
-      (argv: any) =>
-        attachCommand(argv.project, {
+      async (argv: any) =>
+        await attachCommand(argv.project, {
           instance: argv.instance,
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
         })

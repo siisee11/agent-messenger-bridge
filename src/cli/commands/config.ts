@@ -15,6 +15,7 @@ export async function configCommand(options: {
   slackBotToken?: string;
   slackAppToken?: string;
   platform?: string;
+  runtimeMode?: 'tmux' | 'pty';
 }) {
   if (options.show) {
     console.log(chalk.cyan('\n📋 Current configuration:\n'));
@@ -28,6 +29,7 @@ export async function configCommand(options: {
     console.log(chalk.gray(`   Hook Port: ${config.hookServerPort || 18470}`));
     console.log(chalk.gray(`   Default AI CLI: ${config.defaultAgentCli || '(not set)'}`));
     console.log(chalk.gray(`   OpenCode Permission Mode: ${config.opencode?.permissionMode || '(not set)'}`));
+    console.log(chalk.gray(`   Runtime Mode: ${config.runtimeMode || 'tmux'}`));
     console.log(chalk.gray(`   Keep Channel On Stop: ${getConfigValue('keepChannelOnStop') ? 'on' : 'off'}`));
     console.log(chalk.cyan('\n🤖 Registered Agents:\n'));
     for (const adapter of agentRegistry.getAll()) {
@@ -43,6 +45,12 @@ export async function configCommand(options: {
     const platform = options.platform === 'slack' ? 'slack' : 'discord';
     saveConfig({ messagingPlatform: platform });
     console.log(chalk.green(`✅ Platform saved: ${platform}`));
+    updated = true;
+  }
+
+  if (options.runtimeMode) {
+    saveConfig({ runtimeMode: options.runtimeMode });
+    console.log(chalk.green(`✅ Runtime mode saved: ${options.runtimeMode}`));
     updated = true;
   }
 
@@ -123,6 +131,7 @@ export async function configCommand(options: {
     console.log(chalk.gray('  discode config --channel 123456789012345678'));
     console.log(chalk.gray('  discode config --default-agent claude'));
     console.log(chalk.gray('  discode config --platform slack'));
+    console.log(chalk.gray('  discode config --runtime-mode pty'));
     console.log(chalk.gray('  discode config --slack-bot-token xoxb-...'));
     console.log(chalk.gray('  discode config --slack-app-token xapp-...'));
     console.log(chalk.gray('  discode config --opencode-permission allow'));

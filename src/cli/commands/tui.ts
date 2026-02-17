@@ -722,7 +722,15 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             };
           }
         }
-        attachCommand(project, {
+        if (effectiveConfig.runtimeMode === 'pty') {
+          return runtimeTarget
+            ? {
+              currentSession: runtimeTarget.sessionName,
+              currentWindow: runtimeTarget.windowName,
+            }
+            : undefined;
+        }
+        await attachCommand(project, {
           tmuxSharedSessionName: options.tmuxSharedSessionName,
         });
         if (!runtimeTarget) return;

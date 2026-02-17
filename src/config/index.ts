@@ -21,6 +21,7 @@ export interface StoredConfig {
   slackBotToken?: string;
   slackAppToken?: string;
   messagingPlatform?: 'discord' | 'slack';
+  runtimeMode?: 'tmux' | 'pty';
 }
 
 export class ConfigManager {
@@ -63,6 +64,8 @@ export class ConfigManager {
 
       const slackBotToken = storedConfig.slackBotToken || this.env.get('SLACK_BOT_TOKEN');
       const slackAppToken = storedConfig.slackAppToken || this.env.get('SLACK_APP_TOKEN');
+      const runtimeModeRaw = storedConfig.runtimeMode || this.env.get('DISCODE_RUNTIME_MODE');
+      const runtimeMode = runtimeModeRaw === 'pty' ? 'pty' : 'tmux';
 
       // Merge: stored config > environment variables > defaults
       this._config = {
@@ -75,6 +78,7 @@ export class ConfigManager {
           ? { slack: { botToken: slackBotToken, appToken: slackAppToken } }
           : {}),
         ...(messagingPlatform ? { messagingPlatform } : {}),
+        runtimeMode,
         tmux: {
           sessionPrefix: this.env.get('TMUX_SESSION_PREFIX') || '',
           sharedSessionName: this.env.get('TMUX_SHARED_SESSION_NAME') || 'bridge',

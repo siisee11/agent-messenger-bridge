@@ -486,6 +486,7 @@ describe('BridgeHookServer', () => {
         sendKeysToWindow: vi.fn(),
         typeKeysToWindow: vi.fn(),
         sendEnterToWindow: vi.fn(),
+        stopWindow: vi.fn().mockReturnValue(true),
         listWindows: vi.fn().mockReturnValue(windows),
         getWindowBuffer: vi.fn().mockReturnValue('hello-runtime'),
       };
@@ -535,6 +536,16 @@ describe('BridgeHookServer', () => {
 
       const res = await getRequest(port, '/runtime/windows');
       expect(res.status).toBe(501);
+    });
+
+    it('stops runtime window via POST /runtime/stop', async () => {
+      const runtime = createMockRuntime();
+      startServer({ runtime: runtime as any });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/runtime/stop', { windowId: 'bridge:project-claude' });
+      expect(res.status).toBe(200);
+      expect(runtime.stopWindow).toHaveBeenCalledWith('bridge', 'project-claude');
     });
   });
 });

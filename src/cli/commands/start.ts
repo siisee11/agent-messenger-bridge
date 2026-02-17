@@ -14,9 +14,12 @@ import {
 
 export async function startCommand(options: TmuxCliOptions & { project?: string; attach?: boolean }) {
   try {
-    ensureTmuxInstalled();
     validateConfig();
     const effectiveConfig = applyTmuxCliOverrides(config, options);
+    const runtimeMode = effectiveConfig.runtimeMode || 'tmux';
+    if (runtimeMode === 'tmux') {
+      ensureTmuxInstalled();
+    }
 
     const projects = stateManager.listProjects();
 
@@ -74,8 +77,15 @@ export async function startCommand(options: TmuxCliOptions & { project?: string;
       const attachTarget = windowName ? `${sessionName}:${windowName}` : sessionName;
 
       await bridge.start();
-      console.log(chalk.cyan(`\n📺 Attaching to ${attachTarget}...\n`));
-      attachToTmux(sessionName, windowName);
+      if (runtimeMode === 'tmux') {
+        console.log(chalk.cyan(`\n📺 Attaching to ${attachTarget}...\n`));
+        attachToTmux(sessionName, windowName);
+      } else {
+        console.log(chalk.cyan(`\n🧭 Runtime window ready: ${attachTarget}`));
+        console.log(chalk.cyan('📺 Opening discode TUI...\n'));
+        const { tuiCommand } = await import('./tui.js');
+        await tuiCommand(options);
+      }
       return;
     }
 

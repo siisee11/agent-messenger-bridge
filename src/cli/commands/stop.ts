@@ -14,6 +14,7 @@ import {
   resolveProjectWindowName,
   terminateTmuxPaneProcesses,
 } from '../common/tmux.js';
+import { stopRuntimeWindow } from '../common/runtime-api.js';
 
 export async function stopCommand(
   projectName: string | undefined,
@@ -27,7 +28,99 @@ export async function stopCommand(
 
   const project = stateManager.getProject(projectName);
   const effectiveConfig = applyTmuxCliOverrides(config, options);
+  const runtimeMode = effectiveConfig.runtimeMode || 'tmux';
   const requestedInstanceId = options.instance?.trim();
+  const runtimePort = effectiveConfig.hookServerPort || 18470;
+
+  if (runtimeMode === 'pty') {
+    if (project && requestedInstanceId) {
+      const instance = getProjectInstance(project, requestedInstanceId);
+      if (!instance) {
+        const known = listProjectInstances(project).map((item) => item.instanceId).join(', ');
+        console.error(chalk.red(`Instance '${requestedInstanceId}' not found in project '${projectName}'.`));
+        if (known) {
+          console.log(chalk.gray(`Available instances: ${known}`));
+        }
+        process.exit(1);
+      }
+
+      const windowName = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
+      const target = `${project.tmuxSession}:${windowName}`;
+      const stopped = await stopRuntimeWindow(runtimePort, target);
+      if (stopped) {
+        console.log(chalk.green(`✅ runtime window stopped: ${target}`));
+      } else {
+        console.log(chalk.gray(`   runtime window ${target} not running`));
+      }
+
+      if (!options.keepChannel && instance.channelId) {
+        try {
+          const deleted = await deleteChannels([instance.channelId]);
+          if (deleted.length > 0) {
+            console.log(chalk.green(`✅ Discord channel deleted: ${deleted[0]}`));
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      }
+
+      const stateUpdate = removeInstanceFromProjectState(projectName, instance.instanceId);
+      if (stateUpdate.removedProject) {
+        console.log(chalk.green('✅ Project removed from state (last instance stopped)'));
+      } else {
+        console.log(chalk.green(`✅ Instance removed from state: ${instance.instanceId}`));
+      }
+
+      const staleTuiCount = cleanupStaleDiscodeTuiProcesses();
+      if (staleTuiCount > 0) {
+        console.log(chalk.yellow(`⚠️ Cleaned ${staleTuiCount} stale discode TUI process(es).`));
+      }
+
+      console.log(chalk.cyan('\n✨ Done\n'));
+      return;
+    }
+
+    if (project) {
+      const instances = listProjectInstances(project);
+      for (const instance of instances) {
+        const windowName = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
+        const target = `${project.tmuxSession}:${windowName}`;
+        const stopped = await stopRuntimeWindow(runtimePort, target);
+        if (stopped) {
+          console.log(chalk.green(`✅ runtime window stopped: ${target}`));
+        } else {
+          console.log(chalk.gray(`   runtime window ${target} not running`));
+        }
+      }
+
+      if (!options.keepChannel) {
+        const channelIds = instances
+          .map((instance) => instance.channelId)
+          .filter((channelId): channelId is string => !!channelId);
+        if (channelIds.length > 0) {
+          try {
+            const deleted = await deleteChannels(channelIds);
+            for (const channelId of deleted) {
+              console.log(chalk.green(`✅ Discord channel deleted: ${channelId}`));
+            }
+          } catch (error) {
+            console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
+          }
+        }
+      }
+
+      removeProjectState(projectName);
+      console.log(chalk.green('✅ Project removed from state'));
+    }
+
+    const staleTuiCount = cleanupStaleDiscodeTuiProcesses();
+    if (staleTuiCount > 0) {
+      console.log(chalk.yellow(`⚠️ Cleaned ${staleTuiCount} stale discode TUI process(es).`));
+    }
+
+    console.log(chalk.cyan('\n✨ Done\n'));
+    return;
+  }
 
   if (project && requestedInstanceId) {
     const instance = getProjectInstance(project, requestedInstanceId);

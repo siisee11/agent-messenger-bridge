@@ -136,6 +136,27 @@ export class RuntimeControlPlane {
     };
   }
 
+  stopWindow(windowId: string): boolean {
+    if (!this.runtime?.stopWindow) {
+      throw new Error('Runtime stop unavailable');
+    }
+
+    const parsed = this.parseWindowId(windowId);
+    if (!parsed) {
+      throw new Error('Invalid windowId');
+    }
+
+    if (!this.runtime.windowExists(parsed.sessionName, parsed.windowName)) {
+      throw new Error('Window not found');
+    }
+
+    const stopped = this.runtime.stopWindow(parsed.sessionName, parsed.windowName);
+    if (!stopped) {
+      throw new Error('Failed to stop window');
+    }
+    return true;
+  }
+
   private toWindowId(sessionName: string, windowName: string): string {
     return `${sessionName}:${windowName}`;
   }

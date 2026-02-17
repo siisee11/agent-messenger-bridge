@@ -5,10 +5,14 @@ import { TmuxManager } from '../../tmux/manager.js';
 import { listProjectInstances } from '../../state/instances.js';
 import { agentRegistry } from '../../agents/index.js';
 import { resolveProjectWindowName } from '../common/tmux.js';
+import { listRuntimeWindows } from '../common/runtime-api.js';
 
-export function listCommand(options?: { prune?: boolean }) {
+export async function listCommand(options?: { prune?: boolean }) {
   const projects = stateManager.listProjects();
   const tmux = new TmuxManager(config.tmux.sessionPrefix);
+  const runtimeMode = config.runtimeMode || 'tmux';
+  const runtimeWindows = runtimeMode === 'pty' ? await listRuntimeWindows(config.hookServerPort || 18470) : null;
+  const runtimeSet = new Set((runtimeWindows?.windows || []).map((window) => `${window.sessionName}:${window.windowName}`));
   const prune = !!options?.prune;
 
   if (projects.length === 0) {
@@ -24,15 +28,17 @@ export function listCommand(options?: { prune?: boolean }) {
       const agentLabel = agentRegistry.get(instance.agentType)?.config.displayName || instance.agentType;
       return `${agentLabel}#${instance.instanceId}`;
     });
-    const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
     const windows = instances.map((instance) => ({
       instanceId: instance.instanceId,
       agentName: instance.agentType,
       windowName: resolveProjectWindowName(project, instance.agentType, config.tmux, instance.instanceId),
     }));
-    const runningWindows = sessionUp
-      ? windows.filter((window) => tmux.windowExists(project.tmuxSession, window.windowName))
-      : [];
+    const runningWindows = runtimeWindows
+      ? windows.filter((window) => runtimeSet.has(`${project.tmuxSession}:${window.windowName}`))
+      : (tmux.sessionExistsFull(project.tmuxSession)
+        ? windows.filter((window) => tmux.windowExists(project.tmuxSession, window.windowName))
+        : []);
+    const sessionUp = runtimeWindows ? runningWindows.length > 0 : tmux.sessionExistsFull(project.tmuxSession);
     const status = runningWindows.length > 0 ? 'running' : sessionUp ? 'session only' : 'stale';
 
     if (prune && status !== 'running') {
@@ -47,7 +53,7 @@ export function listCommand(options?: { prune?: boolean }) {
     console.log(chalk.gray(`    Status: ${status}`));
     if (windows.length > 0) {
       for (const window of windows) {
-        console.log(chalk.gray(`    tmux(${window.instanceId}): ${project.tmuxSession}:${window.windowName}`));
+        console.log(chalk.gray(`    ${runtimeMode}(${window.instanceId}): ${project.tmuxSession}:${window.windowName}`));
       }
     }
   }
