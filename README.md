@@ -30,7 +30,7 @@ Discode runs your AI agent in tmux and simply relays output to Discord - no wrap
 - Persistent tmux sessions
 - Single daemon managing multiple projects
 
-![Discode Demo](./demo.png)
+![Discode Demo](./discode-demo.gif)
 
 ## Features
 

@@ -1,9 +1,9 @@
 :root {
-  --bg: #f3f3f5;
-  --surface: #f8f8f9;
-  --line: #d7d7db;
-  --ink: #1c1c20;
-  --muted: #66666d;
+  --bg: #0d121b;
+  --surface: #151b26;
+  --line: #2a3446;
+  --ink: #e7edf9;
+  --muted: #a2aec2;
 }
 
 * {
@@ -13,7 +13,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   color: var(--ink);
   background: var(--bg);
 }
@@ -61,7 +61,7 @@ body {
 }
 
 .brand-label {
-  font-family: "Nunito Sans", "IBM Plex Sans KR", sans-serif;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   font-size: 2.06rem;
   font-weight: 900;
   letter-spacing: -0.04em;
@@ -76,7 +76,7 @@ body {
 
 .topnav a {
   text-decoration: none;
-  color: #242428;
+  color: #d0d8e7;
   font-size: 1.02rem;
 }
 
@@ -98,7 +98,7 @@ body {
 }
 
 .topnav .topnav-discord:focus-visible {
-  outline: 2px solid #1f1f22;
+  outline: 2px solid #8fb3ff;
   outline-offset: 2px;
 }
 
@@ -112,13 +112,13 @@ body {
   border: 1px solid var(--line);
   border-radius: 0.45rem;
   background: var(--surface);
-  color: #242428;
-  font-family: "IBM Plex Mono", monospace;
+  color: #d0d8e7;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   font-size: 0.9rem;
 }
 
 .language-picker select:focus-visible {
-  outline: 2px solid #1f1f22;
+  outline: 2px solid #8fb3ff;
   outline-offset: 2px;
 }
 
@@ -152,11 +152,10 @@ body {
 
 .news span:first-child {
   display: inline-block;
-  margin-right: 0.58rem;
   padding: 0.16rem 0.48rem;
   border-radius: 0.2rem;
-  background: #222126;
-  color: #f6f7f8;
+  background: #25314a;
+  color: #eff4ff;
   font-size: 0.96rem;
 }
 
@@ -197,7 +196,7 @@ h1 {
 
 .about-copy {
   margin-top: 0;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
 }
 
 .about-copy h2 {
@@ -232,17 +231,17 @@ h1 {
 }
 
 .about-mark {
-  color: #8a8c93;
+  color: #7e899c;
 }
 
 .about-list strong {
   font-size: clamp(1rem, 1.7vw, 1.14rem);
   font-weight: 500;
-  color: #1d1e22;
+  color: #ecf2ff;
 }
 
 .about-list li > span:last-child {
-  color: #5f6167;
+  color: #a8b3c8;
   font-size: clamp(0.96rem, 1.6vw, 1.06rem);
   line-height: 1.5;
 }
@@ -255,19 +254,19 @@ h1 {
   gap: 0.85rem;
   padding: 0.92rem 1.25rem;
   border-radius: 0.5rem;
-  background: #19171c;
-  color: #f8f8fa;
+  background: #4f6cf7;
+  color: #ffffff;
   font-size: 1.02rem;
   font-weight: 500;
   text-decoration: none;
 }
 
 .about-cta:hover {
-  background: #24222a;
+  background: #6a84ff;
 }
 
 .about-cta:focus-visible {
-  outline: 2px solid #1f1f22;
+  outline: 2px solid #8fb3ff;
   outline-offset: 2px;
 }
 
@@ -288,30 +287,30 @@ h1 {
   border: 0;
   background: transparent;
   cursor: pointer;
-  color: #9a9ba0;
-  font-family: "IBM Plex Mono", monospace;
+  color: #8b96ab;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   font-size: 1.02rem;
 }
 
 .tab:focus-visible {
-  outline: 2px solid #1f1f22;
+  outline: 2px solid #8fb3ff;
   outline-offset: -2px;
 }
 
 .tab-active {
-  color: #1f1f22;
-  border-bottom: 3px solid #1f1f22;
+  color: #8fb3ff;
+  border-bottom: 3px solid #8fb3ff;
 }
 
 pre,
 code {
   margin: 0;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
 }
 
 pre {
   padding: 1.55rem 1.35rem;
-  color: #3b3d44;
+  color: #d6dff0;
   background: var(--surface);
   font-size: 1.02rem;
   overflow-x: auto;
@@ -326,23 +325,23 @@ pre {
   position: absolute;
   top: 0.65rem;
   right: 0.65rem;
-  border: 1px solid #bfc4ce;
-  background: #f8f9fc;
-  color: #252630;
+  border: 1px solid #3a465d;
+  background: #1a2335;
+  color: #dde7ff;
   border-radius: 0.4rem;
   padding: 0.18rem 0.55rem;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   font-size: 0.72rem;
   line-height: 1.3;
   cursor: pointer;
 }
 
 .install-copy-btn:hover {
-  background: #eef1f7;
+  background: #223047;
 }
 
 .install-copy-btn:focus-visible {
-  outline: 2px solid #1f1f22;
+  outline: 2px solid #8fb3ff;
   outline-offset: 2px;
 }
 
@@ -472,7 +471,6 @@ pre {
   }
 
   .news span:first-child {
-    margin-right: 0.5rem;
     padding: 0.15rem 0.45rem;
     font-size: 0.78rem;
   }
@@ -511,14 +509,14 @@ pre {
     border: 1px solid var(--line);
     border-radius: 999px;
     font-size: 0.9rem;
-    color: #62646d;
-    background: #f2f2f5;
+    color: #9ba8bf;
+    background: #1b2332;
   }
 
   .tab-active {
-    border-bottom: 1px solid #1f1f22;
-    background: #1f1f22;
-    color: #f8f8fa;
+    border-bottom: 1px solid #8fb3ff;
+    background: #8fb3ff;
+    color: #ffffff;
   }
 
   pre {
