@@ -39,15 +39,24 @@ type TuiInput = {
   currentWindow?: string;
   onCommand: (command: string, append: (line: string) => void) => Promise<boolean | void>;
   onStopProject: (project: string) => Promise<void>;
-  onAttachProject: (project: string) => Promise<void>;
-  getProjects: () => Array<{
+  onAttachProject: (project: string) => Promise<{ currentSession?: string; currentWindow?: string } | void>;
+  getProjects: () =>
+    | Array<{
+      project: string;
+      session: string;
+      window: string;
+      ai: string;
+      channel: string;
+      open: boolean;
+    }>
+    | Promise<Array<{
     project: string;
     session: string;
     window: string;
     ai: string;
     channel: string;
     open: boolean;
-  }>;
+    }>>;
 };
 
 const palette = {
@@ -97,6 +106,8 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [listSelected, setListSelected] = createSignal(0);
   const [stopOpen, setStopOpen] = createSignal(false);
   const [stopSelected, setStopSelected] = createSignal(0);
+  const [currentSession, setCurrentSession] = createSignal(props.input.currentSession);
+  const [currentWindow, setCurrentWindow] = createSignal(props.input.currentWindow);
   const [projects, setProjects] = createSignal<Array<{
     project: string;
     session: string;
@@ -140,9 +151,9 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     ];
   });
   const currentWindowItems = createMemo(() => {
-    if (!props.input.currentSession || !props.input.currentWindow) return [];
+    if (!currentSession() || !currentWindow()) return [];
     return openProjects()
-      .filter((item) => item.session === props.input.currentSession && item.window === props.input.currentWindow)
+      .filter((item) => item.session === currentSession() && item.window === currentWindow())
       .sort((a, b) => a.project.localeCompare(b.project));
   });
   const sessionList = createMemo(() => {
@@ -300,7 +311,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     const selectedSession = sessionList()[listSelected()];
     if (!selectedSession?.attachProject) return;
     closeListDialog();
-    await props.input.onAttachProject(selectedSession.attachProject);
+    await focusProject(selectedSession.attachProject);
   };
 
   const resolveCtrlNumberIndex = (evt: { ctrl?: boolean; name?: string }): number | null => {
@@ -314,7 +325,14 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const quickSwitchToIndex = async (index: number) => {
     const item = quickSwitchWindows()[index];
     if (!item) return;
-    await props.input.onAttachProject(item.project);
+    await focusProject(item.project);
+  };
+
+  const focusProject = async (project: string) => {
+    const focused = await props.input.onAttachProject(project);
+    if (!focused) return;
+    if (focused.currentSession) setCurrentSession(focused.currentSession);
+    if (focused.currentWindow) setCurrentWindow(focused.currentWindow);
   };
 
   const clampNewSelection = (offset: number) => {
@@ -332,7 +350,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       await props.input.onCommand('/new', () => {});
       return;
     }
-    await props.input.onAttachProject(choice.project);
+    await focusProject(choice.project);
   };
 
   const clampStopSelection = (offset: number) => {
@@ -523,12 +541,20 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   });
 
   onMount(() => {
-    const refresh = () => {
-      setProjects(props.input.getProjects());
+    let stopped = false;
+    const refresh = async () => {
+      const next = await props.input.getProjects();
+      if (stopped) return;
+      setProjects(next);
     };
-    refresh();
-    const timer = setInterval(refresh, 2000);
-    onCleanup(() => clearInterval(timer));
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, 2000);
+    onCleanup(() => {
+      stopped = true;
+      clearInterval(timer);
+    });
     setTimeout(() => textarea?.focus(), 1);
   });
 
@@ -536,21 +562,21 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     <box width={dims().width} height={dims().height} backgroundColor={palette.bg} flexDirection="column">
       <box flexGrow={1} backgroundColor={palette.bg} alignItems="center" justifyContent="center" paddingLeft={2} paddingRight={2}>
         <box width={Math.max(40, Math.min(90, Math.floor(dims().width * 0.7)))} flexDirection="column">
-          <Show when={props.input.currentSession || props.input.currentWindow}>
+          <Show when={currentSession() || currentWindow()}>
             <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
               <box paddingLeft={1} paddingRight={1}>
                 <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current window</text>
               </box>
               <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
-                <Show when={props.input.currentSession}>
-                  <text fg={palette.text}>{`session: ${props.input.currentSession}`}</text>
+                <Show when={currentSession()}>
+                  <text fg={palette.text}>{`session: ${currentSession()}`}</text>
                 </Show>
-                <Show when={props.input.currentWindow} fallback={<text fg={palette.muted}>window: unavailable</text>}>
-                  <text fg={palette.text}>{`window: ${props.input.currentWindow}`}</text>
+                <Show when={currentWindow()} fallback={<text fg={palette.muted}>window: unavailable</text>}>
+                  <text fg={palette.text}>{`window: ${currentWindow()}`}</text>
                 </Show>
                 <Show
-                  when={props.input.currentWindow && currentWindowItems().length > 0}
-                  fallback={<text fg={palette.muted}>{props.input.currentWindow ? 'No running projects in this window' : 'Could not resolve current window'}</text>}
+                  when={currentWindow() && currentWindowItems().length > 0}
+                  fallback={<text fg={palette.muted}>{currentWindow() ? 'No running projects in this window' : 'Could not resolve current window'}</text>}
                 >
                   <For each={currentWindowItems().slice(0, 6)}>
                     {(item, index) => (

@@ -10,6 +10,11 @@ function createMockTmuxManager() {
     sendKeysToWindow: vi.fn(),
     typeKeysToWindow: vi.fn(),
     sendEnterToWindow: vi.fn(),
+    listSessions: vi.fn().mockReturnValue([{ name: 'agent-bridge' }]),
+    sessionExistsFull: vi.fn().mockReturnValue(true),
+    listWindows: vi.fn().mockReturnValue(['proj-claude', 'proj-gemini']),
+    capturePaneFromWindow: vi.fn().mockReturnValue('window output'),
+    killWindow: vi.fn(),
   };
 }
 
@@ -42,5 +47,22 @@ describe('TmuxRuntime', () => {
     expect(tmux.sendKeysToWindow).toHaveBeenCalledWith('agent-bridge', 'project-opencode', 'hello', 'opencode');
     expect(tmux.typeKeysToWindow).toHaveBeenCalledWith('agent-bridge', 'project-opencode', 'hello', 'opencode');
     expect(tmux.sendEnterToWindow).toHaveBeenCalledWith('agent-bridge', 'project-opencode', 'opencode');
+  });
+
+  it('provides runtime listing, buffer, and stop methods', () => {
+    const tmux = createMockTmuxManager();
+    const runtime = new TmuxRuntime(tmux as any);
+
+    const windows = runtime.listWindows();
+    const buffer = runtime.getWindowBuffer('agent-bridge', 'proj-claude');
+    const stopped = runtime.stopWindow('agent-bridge', 'proj-claude');
+
+    expect(windows).toEqual([
+      { sessionName: 'agent-bridge', windowName: 'proj-claude', status: 'running' },
+      { sessionName: 'agent-bridge', windowName: 'proj-gemini', status: 'running' },
+    ]);
+    expect(buffer).toBe('window output');
+    expect(stopped).toBe(true);
+    expect(tmux.killWindow).toHaveBeenCalledWith('agent-bridge', 'proj-claude');
   });
 });

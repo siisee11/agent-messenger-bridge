@@ -35,4 +35,42 @@ export class TmuxRuntime implements AgentRuntime {
   sendEnterToWindow(sessionName: string, windowName: string, paneHint?: string): void {
     this.tmux.sendEnterToWindow(sessionName, windowName, paneHint);
   }
+
+  listWindows(sessionName?: string): Array<{
+    sessionName: string;
+    windowName: string;
+    status: string;
+  }> {
+    const sessions = sessionName
+      ? [sessionName]
+      : this.tmux.listSessions().map((session) => session.name);
+
+    const result: Array<{ sessionName: string; windowName: string; status: string }> = [];
+    for (const name of sessions) {
+      if (!this.tmux.sessionExistsFull(name)) continue;
+      let windows: string[] = [];
+      try {
+        windows = this.tmux.listWindows(name);
+      } catch {
+        windows = [];
+      }
+      for (const windowName of windows) {
+        result.push({ sessionName: name, windowName, status: 'running' });
+      }
+    }
+    return result;
+  }
+
+  getWindowBuffer(sessionName: string, windowName: string): string {
+    return this.tmux.capturePaneFromWindow(sessionName, windowName);
+  }
+
+  stopWindow(sessionName: string, windowName: string): boolean {
+    try {
+      this.tmux.killWindow(sessionName, windowName);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }

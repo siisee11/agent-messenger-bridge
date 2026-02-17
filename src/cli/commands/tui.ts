@@ -1,5 +1,6 @@
 import { basename } from 'path';
 import { execSync, spawnSync } from 'child_process';
+import { request as httpRequest } from 'http';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
@@ -18,6 +19,93 @@ import {
 import { attachCommand } from './attach.js';
 import { newCommand } from './new.js';
 import { stopCommand } from './stop.js';
+
+type RuntimeWindowPayload = {
+  windowId: string;
+  sessionName: string;
+  windowName: string;
+  status?: string;
+  pid?: number;
+};
+
+type RuntimeWindowsPayload = {
+  activeWindowId?: string;
+  windows: RuntimeWindowPayload[];
+};
+
+type HttpJsonResult = {
+  status: number;
+  body: string;
+};
+
+function requestRuntimeApi(params: {
+  port: number;
+  method: 'GET' | 'POST';
+  path: string;
+  payload?: unknown;
+}): Promise<HttpJsonResult> {
+  return new Promise((resolve, reject) => {
+    const body = params.payload === undefined ? '' : JSON.stringify(params.payload);
+    const req = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port: params.port,
+        path: params.path,
+        method: params.method,
+        headers: params.method === 'POST'
+          ? {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          }
+          : undefined,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk.toString('utf8');
+        });
+        res.on('end', () => {
+          resolve({ status: res.statusCode || 0, body: data });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(2000, () => {
+      req.destroy(new Error('Runtime API request timeout'));
+    });
+    if (params.method === 'POST') {
+      req.write(body);
+    }
+    req.end();
+  });
+}
+
+function parseRuntimeWindowsPayload(raw: string): RuntimeWindowsPayload | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<RuntimeWindowsPayload>;
+    if (!Array.isArray(parsed.windows)) return null;
+    const windows = parsed.windows
+      .filter((item): item is RuntimeWindowPayload => {
+        if (!item || typeof item !== 'object') return false;
+        const event = item as Record<string, unknown>;
+        return typeof event.windowId === 'string' && typeof event.sessionName === 'string' && typeof event.windowName === 'string';
+      })
+      .map((item) => ({
+        windowId: item.windowId,
+        sessionName: item.sessionName,
+        windowName: item.windowName,
+        status: item.status,
+        pid: item.pid,
+      }));
+
+    return {
+      activeWindowId: typeof parsed.activeWindowId === 'string' ? parsed.activeWindowId : undefined,
+      windows,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function isTmuxPaneAlive(paneTarget?: string): boolean {
   if (!paneTarget || paneTarget.trim().length === 0) return false;
@@ -115,7 +203,88 @@ function handoffToBunRuntime(): never {
 
 export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   const effectiveConfig = applyTmuxCliOverrides(config, options);
+  const runtimePort = effectiveConfig.hookServerPort || 18470;
   let keepChannelOnStop = getConfigValue('keepChannelOnStop') === true;
+  let runtimeSupported: boolean | undefined;
+  let runtimeWindowsCache: RuntimeWindowsPayload | null = null;
+
+  const fetchRuntimeWindows = async (): Promise<RuntimeWindowsPayload | null> => {
+    try {
+      const result = await requestRuntimeApi({
+        port: runtimePort,
+        method: 'GET',
+        path: '/runtime/windows',
+      });
+
+      if (result.status === 200) {
+        const payload = parseRuntimeWindowsPayload(result.body);
+        runtimeSupported = !!payload;
+        runtimeWindowsCache = payload;
+        return payload;
+      }
+
+      if (result.status === 501 || result.status === 404 || result.status === 405) {
+        runtimeSupported = false;
+        runtimeWindowsCache = null;
+        return null;
+      }
+
+      return runtimeWindowsCache;
+    } catch {
+      return runtimeWindowsCache;
+    }
+  };
+
+  const focusRuntimeWindow = async (windowId: string): Promise<boolean> => {
+    try {
+      const result = await requestRuntimeApi({
+        port: runtimePort,
+        method: 'POST',
+        path: '/runtime/focus',
+        payload: { windowId },
+      });
+      if (result.status === 200) {
+        if (!runtimeWindowsCache || !runtimeWindowsCache.windows.some((item) => item.windowId === windowId)) {
+          await fetchRuntimeWindows();
+        }
+        if (runtimeWindowsCache) {
+          runtimeWindowsCache.activeWindowId = windowId;
+        }
+        runtimeSupported = true;
+        return true;
+      }
+      if (result.status === 501 || result.status === 404 || result.status === 405) {
+        runtimeSupported = false;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const resolveRuntimeWindowForProject = (projectName: string): { windowId: string; sessionName: string; windowName: string } | null => {
+    const project = stateManager.getProject(projectName);
+    if (!project) return null;
+    const instances = listProjectInstances(project);
+    const firstInstance = instances[0];
+    if (!firstInstance) return null;
+    const windowName = resolveProjectWindowName(project, firstInstance.agentType, effectiveConfig.tmux, firstInstance.instanceId);
+    return {
+      windowId: `${project.tmuxSession}:${windowName}`,
+      sessionName: project.tmuxSession,
+      windowName,
+    };
+  };
+
+  const parseWindowId = (windowId: string | undefined): { sessionName: string; windowName: string } | null => {
+    if (!windowId) return null;
+    const idx = windowId.indexOf(':');
+    if (idx <= 0 || idx >= windowId.length - 1) return null;
+    return {
+      sessionName: windowId.slice(0, idx),
+      windowName: windowId.slice(idx + 1),
+    };
+  };
 
   const handler = async (command: string, append: (line: string) => void): Promise<boolean> => {
     if (command === '/exit' || command === '/quit') {
@@ -243,6 +412,20 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
 
     if (command === '/list') {
       reloadStateFromDisk();
+      const runtimeWindows = await fetchRuntimeWindows();
+      if (runtimeWindows && runtimeWindows.windows.length > 0) {
+        const sessions = new Map<string, number>();
+        for (const window of runtimeWindows.windows) {
+          sessions.set(window.sessionName, (sessions.get(window.sessionName) || 0) + 1);
+        }
+        [...sessions.entries()]
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .forEach(([sessionName, count]) => {
+            append(`[session] ${sessionName} (${count} windows)`);
+          });
+        return false;
+      }
+
       const sessions = new Set(
         stateManager
           .listProjects()
@@ -402,8 +585,10 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   process.once('exit', clearTmuxHealthTimer);
 
   const tmux = new TmuxManager(config.tmux.sessionPrefix);
-  const currentSession = tmux.getCurrentSession(process.env.TMUX_PANE);
-  const currentWindow = tmux.getCurrentWindow(process.env.TMUX_PANE);
+  const runtimeAtStartup = await fetchRuntimeWindows();
+  const runtimeActiveAtStartup = parseWindowId(runtimeAtStartup?.activeWindowId);
+  const currentSession = runtimeActiveAtStartup?.sessionName || tmux.getCurrentSession(process.env.TMUX_PANE);
+  const currentWindow = runtimeActiveAtStartup?.windowName || tmux.getCurrentWindow(process.env.TMUX_PANE);
 
   const sourceCandidates = [
     new URL('./tui.js', import.meta.url),
@@ -441,9 +626,25 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       currentWindow: currentWindow || undefined,
       onCommand: handler,
       onAttachProject: async (project: string) => {
+        reloadStateFromDisk();
+        const runtimeTarget = resolveRuntimeWindowForProject(project);
+        if (runtimeTarget && runtimeSupported !== false) {
+          const focused = await focusRuntimeWindow(runtimeTarget.windowId);
+          if (focused) {
+            return {
+              currentSession: runtimeTarget.sessionName,
+              currentWindow: runtimeTarget.windowName,
+            };
+          }
+        }
         attachCommand(project, {
           tmuxSharedSessionName: options.tmuxSharedSessionName,
         });
+        if (!runtimeTarget) return;
+        return {
+          currentSession: runtimeTarget.sessionName,
+          currentWindow: runtimeTarget.windowName,
+        };
       },
       onStopProject: async (project: string) => {
         await stopCommand(project, {
@@ -451,8 +652,13 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
           tmuxSharedSessionName: options.tmuxSharedSessionName,
         });
       },
-      getProjects: () => {
+      getProjects: async () => {
         reloadStateFromDisk();
+        const runtimeWindows = await fetchRuntimeWindows();
+        const runtimeSet = new Set(
+          (runtimeWindows?.windows || []).map((window) => `${window.sessionName}:${window.windowName}`),
+        );
+
         return stateManager.listProjects().map((project) => {
           const instances = listProjectInstances(project);
           const agentNames = getEnabledAgentNames(project);
@@ -463,11 +669,19 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             : '(none)';
           const channelCount = instances.filter((instance) => !!instance.channelId).length;
           const channelBase = channelCount > 0 ? `${channelCount} channel(s)` : 'not connected';
-          const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
-          const windowUp = sessionUp && instances.some((instance) => {
-            const name = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
-            return tmux.windowExists(project.tmuxSession, name);
-          });
+          const windowUp = runtimeWindows
+            ? instances.some((instance) => {
+              const name = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
+              return runtimeSet.has(`${project.tmuxSession}:${name}`);
+            })
+            : (() => {
+              const sessionUp = tmux.sessionExistsFull(project.tmuxSession);
+              return sessionUp && instances.some((instance) => {
+                const name = resolveProjectWindowName(project, instance.agentType, effectiveConfig.tmux, instance.instanceId);
+                return tmux.windowExists(project.tmuxSession, name);
+              });
+            })();
+
           return {
             project: project.projectName,
             session: project.tmuxSession,
