@@ -58,6 +58,7 @@ export class VtScreen {
   private pendingInput = '';
   private scrollTop = 0;
   private scrollBottom = 0;
+  private wrapPending = false;
 
   constructor(cols = 120, rows = 40, scrollback = 2000) {
     this.cols = clamp(cols, 20, 300);
@@ -103,12 +104,14 @@ export class VtScreen {
         }
 
         if (next === 'D') {
+          this.wrapPending = false;
           this.lineFeed();
           i += 2;
           continue;
         }
 
         if (next === 'E') {
+          this.wrapPending = false;
           this.cursorCol = 0;
           this.lineFeed();
           i += 2;
@@ -116,6 +119,7 @@ export class VtScreen {
         }
 
         if (next === 'M') {
+          this.wrapPending = false;
           this.reverseIndex();
           i += 2;
           continue;
@@ -151,18 +155,21 @@ export class VtScreen {
       }
 
       if (ch === '\r') {
+        this.wrapPending = false;
         this.cursorCol = 0;
         i += 1;
         continue;
       }
 
       if (ch === '\n') {
+        this.wrapPending = false;
         this.lineFeed();
         i += 1;
         continue;
       }
 
       if (ch === '\b') {
+        this.wrapPending = false;
         this.cursorCol = Math.max(0, this.cursorCol - 1);
         i += 1;
         continue;
@@ -208,6 +215,7 @@ export class VtScreen {
     this.cursorCol = Math.min(this.cursorCol, this.cols - 1);
     this.scrollTop = Math.max(0, Math.min(this.rows - 1, this.scrollTop));
     this.scrollBottom = Math.max(this.scrollTop, Math.min(this.rows - 1, this.scrollBottom));
+    this.wrapPending = false;
   }
 
   snapshot(cols?: number, rows?: number): TerminalStyledFrame {
@@ -247,6 +255,11 @@ export class VtScreen {
   }
 
   private handleCsi(rawParams: string, final: string): void {
+    // Clear deferred wrap for cursor-moving and erase operations.
+    // SGR ('m') and mode-set ('h'/'l') do NOT cancel the pending wrap.
+    if (final !== 'm' && final !== 'h' && final !== 'l') {
+      this.wrapPending = false;
+    }
     const isPrivate = rawParams.startsWith('?');
     const clean = isPrivate ? rawParams.slice(1) : rawParams;
     const parts = clean.length > 0 ? clean.split(';') : [];
@@ -475,14 +488,19 @@ export class VtScreen {
   }
 
   private writeChar(ch: string): void {
+    if (this.wrapPending) {
+      this.wrapPending = false;
+      this.cursorCol = 0;
+      this.lineFeed();
+    }
     this.ensureCursorRow();
     this.clampCursor();
 
     this.lines[this.cursorRow][this.cursorCol] = this.makeCell(ch);
-    this.cursorCol += 1;
-    if (this.cursorCol >= this.cols) {
-      this.cursorCol = 0;
-      this.lineFeed();
+    if (this.cursorCol < this.cols - 1) {
+      this.cursorCol += 1;
+    } else {
+      this.wrapPending = true;
     }
   }
 
@@ -686,11 +704,13 @@ export class VtScreen {
     this.savedCol = 0;
     this.scrollTop = 0;
     this.scrollBottom = this.rows - 1;
+    this.wrapPending = false;
   }
 
   private leaveAltScreen(): void {
     if (!this.usingAltScreen) return;
     this.usingAltScreen = false;
+    this.wrapPending = false;
     if (!this.savedPrimaryScreen) {
       this.lines = [this.makeLine(this.cols)];
       this.cursorRow = 0;

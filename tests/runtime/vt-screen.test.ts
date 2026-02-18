@@ -106,6 +106,57 @@ describe('VtScreen', () => {
     expect(lines.some((line) => line.includes('         X'))).toBe(true);
   });
 
+  it('defers wrap until next printable character', () => {
+    const screen = new VtScreen(20, 6);
+    // Write exactly 20 chars to fill the row – cursor should stay at col 19
+    // with wrapPending, NOT advance to the next row.
+    screen.write('ABCDEFGHIJ0123456789');
+
+    const pos1 = screen.getCursorPosition();
+    expect(pos1.row).toBe(0);
+    expect(pos1.col).toBe(19);
+
+    // A CSI sequence should cancel the pending wrap without moving the cursor.
+    screen.write('\x1b[31m');
+    const pos2 = screen.getCursorPosition();
+    expect(pos2.row).toBe(0);
+    expect(pos2.col).toBe(19);
+
+    // The next printable char triggers the deferred wrap: cursor wraps to
+    // row 1, char is placed at col 0, then cursor advances to col 1.
+    screen.write('X');
+    const pos3 = screen.getCursorPosition();
+    expect(pos3.row).toBe(1);
+    expect(pos3.col).toBe(1);
+
+    const frame = screen.snapshot(20, 6);
+    const lines = frame.lines.map((l) => l.segments.map((s) => s.text).join(''));
+    expect(lines.some((l) => l === 'ABCDEFGHIJ0123456789')).toBe(true);
+    expect(lines.some((l) => l.startsWith('X'))).toBe(true);
+  });
+
+  it('deferred wrap does not cause spurious scroll in alt screen', () => {
+    const screen = new VtScreen(20, 6);
+    screen.write('\x1b[?1049h');
+
+    // Fill the last row completely (20 chars)
+    screen.write('\x1b[6;1H');
+    screen.write('ABCDEFGHIJ0123456789');
+
+    // Cursor should still be on row 5 (0-indexed) with wrap pending
+    const pos = screen.getCursorPosition();
+    expect(pos.row).toBe(5);
+
+    // CSI H repositions – wrap should NOT have scrolled
+    screen.write('\x1b[1;1H');
+    screen.write('HEAD');
+
+    const frame = screen.snapshot(20, 6);
+    const lines = frame.lines.map((l) => l.segments.map((s) => s.text).join(''));
+    expect(lines[0].startsWith('HEAD')).toBe(true);
+    expect(lines[5]).toBe('ABCDEFGHIJ0123456789');
+  });
+
   it('respects DECSTBM scroll region for line feed', () => {
     const screen = new VtScreen(20, 6);
     screen.write('\x1b[?1049h');
