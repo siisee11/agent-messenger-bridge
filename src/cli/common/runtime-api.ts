@@ -109,3 +109,26 @@ export async function stopRuntimeWindow(port: number, windowId: string): Promise
     return false;
   }
 }
+
+export async function ensureRuntimeWindow(params: {
+  port: number;
+  projectName: string;
+  instanceId?: string;
+  permissionAllow?: boolean;
+}): Promise<boolean> {
+  try {
+    const response = await runtimeApiRequest({
+      port: params.port,
+      method: 'POST',
+      path: '/runtime/ensure',
+      payload: {
+        projectName: params.projectName,
+        ...(params.instanceId ? { instanceId: params.instanceId } : {}),
+        ...(params.permissionAllow ? { permissionAllow: true } : {}),
+      },
+    });
+    return response.status === 200;
+  } catch {
+    return false;
+  }
+}

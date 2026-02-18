@@ -19,6 +19,7 @@ import {
 import { attachCommand } from './attach.js';
 import { newCommand } from './new.js';
 import { stopCommand } from './stop.js';
+import { renderTerminalSnapshot } from '../../capture/parser.js';
 
 type RuntimeWindowPayload = {
   windowId: string;
@@ -313,7 +314,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     };
   };
 
-  const readRuntimeWindowOutput = async (sessionName: string, windowName: string): Promise<string | undefined> => {
+  const readRuntimeWindowOutput = async (
+    sessionName: string,
+    windowName: string,
+    width?: number,
+    height?: number,
+  ): Promise<string | undefined> => {
     if (runtimeSupported === false) {
       return undefined;
     }
@@ -344,10 +350,26 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       runtimeBufferCache.set(windowId, trimmed);
       runtimeBufferOffsets.set(windowId, payload.next);
       runtimeSupported = true;
-      return trimmed;
+      return renderTerminalSnapshot(trimmed, { width, height });
     } catch {
-      return runtimeBufferCache.get(windowId);
+      const raw = runtimeBufferCache.get(windowId);
+      return raw ? renderTerminalSnapshot(raw, { width, height }) : raw;
     }
+  };
+
+  const sendRuntimeRawKey = async (sessionName: string, windowName: string, raw: string): Promise<void> => {
+    if (!raw || runtimeSupported === false) return;
+    const windowId = `${sessionName}:${windowName}`;
+    await requestRuntimeApi({
+      port: runtimePort,
+      method: 'POST',
+      path: '/runtime/input',
+      payload: {
+        windowId,
+        text: raw,
+        submit: false,
+      },
+    }).catch(() => ({ status: 0, body: '' }));
   };
 
   const handler = async (command: string, append: (line: string) => void): Promise<boolean> => {
@@ -785,8 +807,11 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
           };
         });
       },
-      getCurrentWindowOutput: async (sessionName: string, windowName: string) => {
-        return readRuntimeWindowOutput(sessionName, windowName);
+      getCurrentWindowOutput: async (sessionName: string, windowName: string, width?: number, height?: number) => {
+        return readRuntimeWindowOutput(sessionName, windowName, width, height);
+      },
+      onRuntimeKey: async (sessionName: string, windowName: string, raw: string) => {
+        await sendRuntimeRawKey(sessionName, windowName, raw);
       },
     });
   } finally {

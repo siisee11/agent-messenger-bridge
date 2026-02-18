@@ -11,7 +11,7 @@ import {
   ensureTmuxInstalled,
   resolveProjectWindowName,
 } from '../common/tmux.js';
-import { focusRuntimeWindow } from '../common/runtime-api.js';
+import { ensureRuntimeWindow, focusRuntimeWindow } from '../common/runtime-api.js';
 
 export async function attachCommand(projectName: string | undefined, options: TmuxCliOptions & { instance?: string }) {
   const effectiveConfig = applyTmuxCliOverrides(config, options);
@@ -56,7 +56,17 @@ export async function attachCommand(projectName: string | undefined, options: Tm
   if (runtimeMode === 'pty') {
     if (windowName) {
       const windowId = `${sessionName}:${windowName}`;
-      const focused = await focusRuntimeWindow(effectiveConfig.hookServerPort || 18470, windowId);
+      const port = effectiveConfig.hookServerPort || 18470;
+      let focused = await focusRuntimeWindow(port, windowId);
+      if (!focused) {
+        await ensureRuntimeWindow({
+          port,
+          projectName,
+          instanceId: requestedInstanceId,
+          permissionAllow: effectiveConfig.opencode?.permissionMode === 'allow',
+        });
+        focused = await focusRuntimeWindow(port, windowId);
+      }
       if (!focused) {
         console.log(chalk.yellow('⚠️ Could not focus runtime window.'));
       }

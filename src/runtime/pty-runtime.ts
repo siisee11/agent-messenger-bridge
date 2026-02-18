@@ -1,5 +1,28 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { createRequire } from 'module';
 import type { AgentRuntime } from './interface.js';
+
+const require = createRequire(import.meta.url);
+
+type NodePtyModule = {
+  spawn: (
+    file: string,
+    args: string[],
+    options: {
+      name?: string;
+      cols?: number;
+      rows?: number;
+      cwd?: string;
+      env?: Record<string, string | undefined>;
+    }
+  ) => {
+    pid: number;
+    write: (data: string) => void;
+    kill: (signal?: string) => void;
+    onData: (cb: (data: string) => void) => void;
+    onExit: (cb: (event: { exitCode: number; signal?: number }) => void) => void;
+  };
+};
 
 export type RuntimeWindowStatus = 'idle' | 'starting' | 'running' | 'exited' | 'error';
 
@@ -16,6 +39,7 @@ export type RuntimeWindowSnapshot = {
 
 type RuntimeWindowRecord = RuntimeWindowSnapshot & {
   process?: ChildProcessWithoutNullStreams;
+  pty?: ReturnType<NodePtyModule['spawn']>;
   buffer: string;
 };
 
@@ -26,17 +50,21 @@ type RuntimeSessionRecord = {
 export type PtyRuntimeOptions = {
   shell?: string;
   maxBufferBytes?: number;
+  useNodePty?: boolean;
 };
 
 export class PtyRuntime implements AgentRuntime {
   private shell: string;
   private maxBufferBytes: number;
+  private useNodePty: boolean;
+  private nodePty: NodePtyModule | null | undefined;
   private sessions = new Map<string, RuntimeSessionRecord>();
   private windows = new Map<string, RuntimeWindowRecord>();
 
   constructor(options?: PtyRuntimeOptions) {
     this.shell = options?.shell || process.env.SHELL || '/bin/bash';
     this.maxBufferBytes = options?.maxBufferBytes || 256 * 1024;
+    this.useNodePty = options?.useNodePty !== false;
   }
 
   getOrCreateSession(projectName: string, firstWindowName?: string): string {
@@ -63,13 +91,17 @@ export class PtyRuntime implements AgentRuntime {
     this.ensureSession(sessionName);
     const record = this.ensureWindowRecord(sessionName, windowName);
 
-    if (record.process && record.status === 'running') {
+    if ((record.process || record.pty) && record.status === 'running') {
       return;
     }
 
     const env = {
       ...process.env,
       ...this.sessions.get(sessionName)?.env,
+      TERM: process.env.TERM || 'xterm-256color',
+      COLORTERM: process.env.COLORTERM || 'truecolor',
+      COLUMNS: process.env.COLUMNS || '140',
+      LINES: process.env.LINES || '40',
     };
 
     record.status = 'starting';
@@ -77,6 +109,41 @@ export class PtyRuntime implements AgentRuntime {
     record.exitedAt = undefined;
     record.exitCode = undefined;
     record.signal = undefined;
+    record.process = undefined;
+    record.pty = undefined;
+
+    const nodePty = this.getNodePty();
+    if (nodePty) {
+      try {
+        const pty = nodePty.spawn(this.shell, ['-lc', agentCommand], {
+          name: env.TERM,
+          cols: parseInt(env.COLUMNS || '140', 10),
+          rows: parseInt(env.LINES || '40', 10),
+          cwd: process.cwd(),
+          env,
+        });
+        record.pty = pty;
+        record.pid = pty.pid;
+        record.status = 'running';
+        this.appendBuffer(record, `[runtime] process started (pid=${pty.pid ?? 'unknown'})\n`);
+
+        pty.onData((data: string) => {
+          this.appendBuffer(record, data);
+        });
+
+        pty.onExit((event) => {
+          record.status = event.exitCode === 0 ? 'exited' : 'error';
+          record.exitCode = event.exitCode;
+          record.signal = null;
+          record.exitedAt = new Date();
+          record.pty = undefined;
+          this.appendBuffer(record, `[runtime] process exited (code=${event.exitCode}, signal=${event.signal ?? 'null'})\n`);
+        });
+        return;
+      } catch (error) {
+        this.appendBuffer(record, `[runtime] pty spawn failed, fallback to child_process: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+    }
 
     const child = spawn(this.shell, ['-lc', agentCommand], {
       env,
@@ -123,17 +190,34 @@ export class PtyRuntime implements AgentRuntime {
 
   typeKeysToWindow(sessionName: string, windowName: string, keys: string): void {
     const record = this.getRunningWindowRecord(sessionName, windowName);
+    if (record.pty) {
+      record.pty.write(keys);
+      return;
+    }
     record.process!.stdin.write(keys);
   }
 
   sendEnterToWindow(sessionName: string, windowName: string): void {
     const record = this.getRunningWindowRecord(sessionName, windowName);
+    if (record.pty) {
+      record.pty.write('\n');
+      return;
+    }
     record.process!.stdin.write('\n');
   }
 
   stopWindow(sessionName: string, windowName: string, signal: NodeJS.Signals = 'SIGTERM'): boolean {
     const record = this.windows.get(this.windowKey(sessionName, windowName));
-    if (!record?.process) return false;
+    if (!record) return false;
+    if (record.pty) {
+      try {
+        record.pty.kill(signal);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (!record.process) return false;
     return record.process.kill(signal);
   }
 
@@ -166,10 +250,28 @@ export class PtyRuntime implements AgentRuntime {
 
   dispose(signal: NodeJS.Signals = 'SIGTERM'): void {
     for (const record of this.windows.values()) {
+      if (record.pty) {
+        try {
+          record.pty.kill(signal);
+        } catch {
+          // ignore
+        }
+      }
       if (record.process) {
         record.process.kill(signal);
       }
     }
+  }
+
+  private getNodePty(): NodePtyModule | null {
+    if (!this.useNodePty) return null;
+    if (this.nodePty !== undefined) return this.nodePty;
+    try {
+      this.nodePty = require('node-pty') as NodePtyModule;
+    } catch {
+      this.nodePty = null;
+    }
+    return this.nodePty;
   }
 
   private ensureSession(sessionName: string): RuntimeSessionRecord {
@@ -202,7 +304,7 @@ export class PtyRuntime implements AgentRuntime {
     if (!record) {
       throw new Error(`Window not found: ${sessionName}:${windowName}`);
     }
-    if (!record.process || record.status !== 'running') {
+    if ((!record.process && !record.pty) || record.status !== 'running') {
       throw new Error(`Window is not running: ${sessionName}:${windowName}`);
     }
     return record;

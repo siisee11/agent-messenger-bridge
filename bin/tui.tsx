@@ -40,7 +40,8 @@ type TuiInput = {
   onCommand: (command: string, append: (line: string) => void) => Promise<boolean | void>;
   onStopProject: (project: string) => Promise<void>;
   onAttachProject: (project: string) => Promise<{ currentSession?: string; currentWindow?: string } | void>;
-  getCurrentWindowOutput?: (sessionName: string, windowName: string) => Promise<string | undefined>;
+  onRuntimeKey?: (sessionName: string, windowName: string, raw: string) => Promise<void>;
+  getCurrentWindowOutput?: (sessionName: string, windowName: string, width?: number, height?: number) => Promise<string | undefined>;
   getProjects: () =>
     | Array<{
       project: string;
@@ -110,6 +111,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [currentSession, setCurrentSession] = createSignal(props.input.currentSession);
   const [currentWindow, setCurrentWindow] = createSignal(props.input.currentWindow);
   const [windowOutput, setWindowOutput] = createSignal('');
+  const [runtimeInputMode, setRuntimeInputMode] = createSignal(true);
   const [projects, setProjects] = createSignal<Array<{
     project: string;
     session: string;
@@ -122,6 +124,9 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   let paletteInput: InputRenderable;
 
   const openProjects = createMemo(() => projects().filter((item) => item.open));
+  const sidebarWidth = createMemo(() => Math.max(34, Math.min(52, Math.floor(dims().width * 0.33))));
+  const terminalPanelWidth = createMemo(() => Math.max(24, dims().width - sidebarWidth() - 6));
+  const terminalPanelHeight = createMemo(() => Math.max(12, dims().height - 8));
   const quickSwitchWindows = createMemo(() =>
     openProjects()
       .slice()
@@ -401,7 +406,52 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     }
   };
 
+  const canHandleRuntimeInput = () => {
+    return runtimeInputMode() && !paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !!currentSession() && !!currentWindow() && !value().startsWith('/');
+  };
+
+  const toRuntimeRawKey = (evt: {
+    name?: string;
+    sequence?: string;
+    ctrl?: boolean;
+    meta?: boolean;
+    shift?: boolean;
+  }): string | null => {
+    const name = evt.name || '';
+    if (name === 'return' || name === 'enter') return '\n';
+    if (name === 'backspace') return '\x7f';
+    if (name === 'tab') return '\t';
+    if (name === 'escape') return '\x1b';
+    if (name === 'up') return '\x1b[A';
+    if (name === 'down') return '\x1b[B';
+    if (name === 'right') return '\x1b[C';
+    if (name === 'left') return '\x1b[D';
+    if (name === 'home') return '\x1b[H';
+    if (name === 'end') return '\x1b[F';
+    if (name === 'delete') return '\x1b[3~';
+    if (name === 'pageup') return '\x1b[5~';
+    if (name === 'pagedown') return '\x1b[6~';
+
+    if (evt.ctrl && name.length === 1 && /^[a-z]$/i.test(name)) {
+      const code = name.toLowerCase().charCodeAt(0) - 96;
+      if (code >= 1 && code <= 26) return String.fromCharCode(code);
+    }
+
+    const sequence = evt.sequence || '';
+    if (!evt.ctrl && !evt.meta && sequence.length > 0) {
+      return sequence;
+    }
+
+    return null;
+  };
+
   useKeyboard((evt) => {
+    if (evt.ctrl && evt.name === 'g') {
+      evt.preventDefault();
+      setRuntimeInputMode(!runtimeInputMode());
+      return;
+    }
+
     const ctrlNumberIndex = resolveCtrlNumberIndex(evt);
     if (ctrlNumberIndex !== null) {
       if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen()) {
@@ -539,6 +589,26 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       evt.preventDefault();
       renderer.destroy();
       props.close();
+      return;
+    }
+
+    if (canHandleRuntimeInput()) {
+      if (evt.sequence === '/') {
+        return;
+      }
+      const raw = toRuntimeRawKey(evt);
+      if (raw) {
+        evt.preventDefault();
+        const session = currentSession();
+        const window = currentWindow();
+        if (session && window && props.input.onRuntimeKey) {
+          void props.input.onRuntimeKey(session, window, raw);
+        }
+        if (value() && !value().startsWith('/')) {
+          textarea?.setText('');
+          setValue('');
+        }
+      }
     }
   });
 
@@ -556,14 +626,16 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         return;
       }
 
-      const output = await props.input.getCurrentWindowOutput(session, window);
+      const panelWidth = terminalPanelWidth();
+      const panelHeight = terminalPanelHeight();
+      const output = await props.input.getCurrentWindowOutput(session, window, panelWidth, panelHeight);
       if (stopped) return;
       setWindowOutput(output || '');
     };
     void refresh();
     const timer = setInterval(() => {
       void refresh();
-    }, 2000);
+    }, 350);
     onCleanup(() => {
       stopped = true;
       clearInterval(timer);
@@ -573,75 +645,64 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
 
   return (
     <box width={dims().width} height={dims().height} backgroundColor={palette.bg} flexDirection="column">
-      <box flexGrow={1} backgroundColor={palette.bg} alignItems="center" justifyContent="center" paddingLeft={2} paddingRight={2}>
-        <box width={Math.max(40, Math.min(90, Math.floor(dims().width * 0.7)))} flexDirection="column">
-          <Show when={currentSession() || currentWindow()}>
-            <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
-              <box paddingLeft={1} paddingRight={1}>
-                <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current window</text>
-              </box>
-              <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
-                <Show when={currentSession()}>
-                  <text fg={palette.text}>{`session: ${currentSession()}`}</text>
-                </Show>
-                <Show when={currentWindow()} fallback={<text fg={palette.muted}>window: unavailable</text>}>
-                  <text fg={palette.text}>{`window: ${currentWindow()}`}</text>
-                </Show>
-                <Show
-                  when={currentWindow() && currentWindowItems().length > 0}
-                  fallback={<text fg={palette.muted}>{currentWindow() ? 'No running projects in this window' : 'Could not resolve current window'}</text>}
-                >
-                  <For each={currentWindowItems().slice(0, 6)}>
-                    {(item, index) => (
-                      <>
-                        <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '`--' : '|--'} project: ${item.project}`}</text>
-                        <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '    ' : '|   '}ai: ${item.ai}`}</text>
-                        <text fg={palette.text}>{`${index() === currentWindowItems().length - 1 ? '    ' : '|   '}channel: ${item.channel}`}</text>
-                      </>
-                    )}
-                  </For>
-                </Show>
-              </box>
-            </box>
-          </Show>
+      <box flexGrow={1} backgroundColor={palette.bg} flexDirection="row" paddingLeft={1} paddingRight={1} paddingTop={1}>
+        <box flexGrow={1} border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" paddingLeft={1} paddingRight={1}>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>Agent Terminal</text>
+            <text fg={palette.muted}>{`${currentSession() || '-'}:${currentWindow() || '-'}`}</text>
+          </box>
+          <box flexDirection="column" flexGrow={1}>
+            <Show when={currentWindow()} fallback={<text fg={palette.muted}>No active window</text>}>
+              <Show when={windowOutput().length > 0} fallback={<text fg={palette.muted}>Waiting for agent output...</text>}>
+                <For each={windowOutput().split('\n').slice(-terminalPanelHeight())}>
+                  {(line) => <text fg={palette.text}>{line.length > 0 ? line : ' '}</text>}
+                </For>
+              </Show>
+            </Show>
+          </box>
+        </box>
 
-          <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" marginTop={1}>
-            <box paddingLeft={1} paddingRight={1} flexDirection="row" justifyContent="space-between">
-              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current sessions</text>
-              <text fg={palette.muted}>{TUI_VERSION_LABEL}</text>
-            </box>
-            <box flexDirection="column" paddingLeft={1} paddingRight={1} paddingBottom={1}>
-              <Show when={sessionList().length > 0} fallback={<text fg={palette.muted}>No running sessions</text>}>
-                <For each={sessionList().slice(0, 8)}>
-                  {(item) => (
-                    <text fg={palette.text}>{`- ${item.session} (${item.windows} windows)`}</text>
-                  )}
-                </For>
-              </Show>
-              <Show when={quickSwitchWindows().length > 0}>
-                <For each={quickSwitchWindows()}>
-                  {(item, index) => (
-                    <text fg={palette.muted}>{`Ctrl+${index() + 1} ${item.project} (${item.window})`}</text>
-                  )}
-                </For>
-              </Show>
-              <text fg={palette.muted}>Use /list to attach quickly</text>
-            </box>
+        <box width={sidebarWidth()} marginLeft={1} border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" paddingLeft={1} paddingRight={1}>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>discode</text>
+            <text fg={palette.muted}>{TUI_VERSION_LABEL}</text>
+          </box>
+          <text fg={runtimeInputMode() ? palette.primary : palette.muted}>{runtimeInputMode() ? 'mode: runtime input' : 'mode: command input'}</text>
+          <text fg={palette.muted}>toggle: Ctrl+g</text>
+          <text fg={palette.muted}>window: Ctrl+1..9</text>
+          <text fg={palette.muted}>commands: / + Enter</text>
+
+          <box flexDirection="column" marginTop={1}>
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current Sessions</text>
+            <Show when={sessionList().length > 0} fallback={<text fg={palette.muted}>No running sessions</text>}>
+              <For each={sessionList().slice(0, 10)}>
+                {(item) => <text fg={palette.text}>{`- ${item.session} (${item.windows})`}</text>}
+              </For>
+            </Show>
           </box>
 
-          <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" marginTop={1}>
-            <box paddingLeft={1} paddingRight={1}>
-              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Active output</text>
-            </box>
-            <box paddingLeft={1} paddingRight={1} paddingBottom={1} flexDirection="column">
-              <Show when={windowOutput().trim().length > 0} fallback={<text fg={palette.muted}>No output yet</text>}>
-                <For each={windowOutput().split('\n').filter((line) => line.trim().length > 0).slice(-8)}>
-                  {(line) => (
-                    <text fg={palette.text}>{line.length > 120 ? `${line.slice(0, 117)}...` : line}</text>
-                  )}
-                </For>
-              </Show>
-            </box>
+          <box flexDirection="column" marginTop={1}>
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>Quick Switch</text>
+            <Show when={quickSwitchWindows().length > 0} fallback={<text fg={palette.muted}>No mapped windows</text>}>
+              <For each={quickSwitchWindows()}>
+                {(item, index) => <text fg={palette.muted}>{`Ctrl+${index() + 1} ${item.project}`}</text>}
+              </For>
+            </Show>
+          </box>
+
+          <box flexDirection="column" marginTop={1}>
+            <text fg={palette.primary} attributes={TextAttributes.BOLD}>Window Info</text>
+            <Show when={currentWindowItems().length > 0} fallback={<text fg={palette.muted}>No project mapped</text>}>
+              <For each={currentWindowItems().slice(0, 3)}>
+                {(item) => (
+                  <>
+                    <text fg={palette.text}>{item.project}</text>
+                    <text fg={palette.muted}>{`ai: ${item.ai}`}</text>
+                    <text fg={palette.muted}>{`channel: ${item.channel}`}</text>
+                  </>
+                )}
+              </For>
+            </Show>
           </box>
         </box>
       </box>
@@ -872,7 +933,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
               maxHeight={4}
               onSubmit={submit}
               keyBindings={[{ name: 'return', action: 'submit' }]}
-              placeholder="Type a command"
+              placeholder={runtimeInputMode() ? 'Press / to enter command mode' : 'Type a command'}
               textColor={palette.text}
               focusedTextColor={palette.text}
               cursorColor={palette.primary}
@@ -883,6 +944,10 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
               }}
               onKeyDown={(event) => {
                 if (paletteOpen() || stopOpen() || newOpen() || listOpen()) {
+                  event.preventDefault();
+                  return;
+                }
+                if (runtimeInputMode() && !value().startsWith('/') && event.sequence !== '/') {
                   event.preventDefault();
                   return;
                 }
