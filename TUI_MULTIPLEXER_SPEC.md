@@ -190,6 +190,68 @@ Compatibility policy:
 - Keep tmux as fallback for one release cycle
 
 
+## 5.7 Low-latency Runtime Streaming
+
+Goal:
+
+- Make PTY mode feel tmux-like (low input latency + native terminal updates)
+- Remove polling bottlenecks from TUI rendering path
+
+Design direction:
+
+- Keep daemon as process owner for all runtime windows
+- Add a local bidirectional stream channel (Unix domain socket) for TUI <-> daemon
+- Move from periodic `/runtime/buffer` polling to push-based frame updates
+
+### 5.7.1 Transport
+
+- Add daemon stream server (e.g., `src/runtime/stream-server.ts`)
+- Socket path: `~/.discode/runtime.sock`
+- Keep existing HTTP runtime endpoints for backward compatibility and fallback
+
+### 5.7.2 Protocol (draft)
+
+- Client -> daemon:
+  - `hello { clientId, version }`
+  - `subscribe { windowId, cols, rows }`
+  - `focus { windowId }`
+  - `input { windowId, bytesBase64 }`
+  - `resize { windowId, cols, rows }`
+- Daemon -> client:
+  - `frame { windowId, seq, cursor, lines[] }` (initial)
+  - `patch { windowId, seq, ops[] }` (optimized)
+  - `window-exit { windowId, code, signal }`
+  - `error { code, message }`
+
+### 5.7.3 Rendering model
+
+- Runtime keeps per-window VT state (screen buffer + cursor + attributes)
+- TUI applies pushed frame/patch updates directly to terminal panel
+- Input path uses raw key bytes, not command-style JSON text handling
+
+### 5.7.4 Phased implementation plan
+
+1. Streaming transport
+   - Implement UDS server/client and subscribe/focus/input flow
+2. VT state engine
+   - Keep persistent terminal state per runtime window and emit frames
+3. TUI migration
+   - Replace polling with stream subscription for active window
+4. Input/resize low-latency path
+   - Send raw keys and terminal size events immediately
+5. Performance optimization
+   - Add frame coalescing and patch/diff updates
+6. Stabilization
+   - Reconnect handling, daemon restart recovery, backpressure guardrails
+
+### 5.7.5 Acceptance targets
+
+- Input-to-visible latency is consistently low (target: < 50ms perceived)
+- `Ctrl+1..9` window switch updates terminal view immediately
+- No dependence on `/runtime/buffer` polling in normal PTY mode
+- Existing tmux mode behavior remains unchanged
+
+
 ## 6) Data Model Changes
 
 `ProjectState` and instance metadata updates:

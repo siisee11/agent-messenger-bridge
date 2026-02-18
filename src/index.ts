@@ -17,17 +17,19 @@ import type { BridgeConfig } from './types/index.js';
 import {
   buildNextInstanceId,
   getProjectInstance,
+  listProjectInstances,
   normalizeProjectState,
 } from './state/instances.js';
 import { installFileInstruction } from './infra/file-instruction.js';
 import { installDiscodeSendScript } from './infra/send-script.js';
 import { buildAgentLaunchEnv, buildExportPrefix, withClaudePluginDir } from './policy/agent-launch.js';
 import { installAgentIntegration } from './policy/agent-integration.js';
-import { toProjectScopedName } from './policy/window-naming.js';
+import { resolveProjectWindowName, toProjectScopedName } from './policy/window-naming.js';
 import { PendingMessageTracker } from './bridge/pending-message-tracker.js';
 import { BridgeProjectBootstrap } from './bridge/project-bootstrap.js';
 import { BridgeMessageRouter } from './bridge/message-router.js';
 import { BridgeHookServer } from './bridge/hook-server.js';
+import { RuntimeStreamServer, getDefaultRuntimeSocketPath } from './runtime/stream-server.js';
 
 export interface AgentBridgeDeps {
   messaging?: MessagingClient;
@@ -46,6 +48,7 @@ export class AgentBridge {
   private projectBootstrap: BridgeProjectBootstrap;
   private messageRouter: BridgeMessageRouter;
   private hookServer: BridgeHookServer;
+  private streamServer: RuntimeStreamServer;
   private stateManager: IStateManager;
   private registry: AgentRegistry;
   private bridgeConfig: BridgeConfig;
@@ -73,6 +76,7 @@ export class AgentBridge {
       runtime: this.runtime,
       reloadChannelMappings: () => this.projectBootstrap.reloadChannelMappings(),
     });
+    this.streamServer = new RuntimeStreamServer(this.runtime, getDefaultRuntimeSocketPath());
   }
 
   private createRuntime(): AgentRuntime {
@@ -126,8 +130,10 @@ export class AgentBridge {
     console.log('✅ Messaging client connected');
 
     this.projectBootstrap.bootstrapProjects();
+    this.restoreRuntimeWindowsIfNeeded();
     this.messageRouter.register();
     this.hookServer.start();
+    this.streamServer.start();
 
     console.log('✅ Discode is running');
     console.log(`📡 Server listening on port ${this.bridgeConfig.hookServerPort || 18470}`);
@@ -266,9 +272,51 @@ export class AgentBridge {
   }
 
   async stop(): Promise<void> {
+    this.streamServer.stop();
     this.hookServer.stop();
     this.runtime.dispose?.('SIGTERM');
     await this.messaging.disconnect();
+  }
+
+  private restoreRuntimeWindowsIfNeeded(): void {
+    if ((this.bridgeConfig.runtimeMode || 'tmux') !== 'pty') return;
+
+    const port = this.bridgeConfig.hookServerPort || 18470;
+    const permissionAllow = this.bridgeConfig.opencode?.permissionMode === 'allow';
+
+    for (const raw of this.stateManager.listProjects()) {
+      const project = normalizeProjectState(raw);
+      this.runtime.setSessionEnv(project.tmuxSession, 'AGENT_DISCORD_PORT', String(port));
+
+      for (const instance of listProjectInstances(project)) {
+        const adapter = this.registry.get(instance.agentType);
+        if (!adapter) continue;
+
+        const windowName = resolveProjectWindowName(
+          project,
+          instance.agentType,
+          this.bridgeConfig.tmux,
+          instance.instanceId,
+        );
+
+        if (this.runtime.windowExists(project.tmuxSession, windowName)) continue;
+
+        const integration = installAgentIntegration(instance.agentType, project.projectPath, 'reinstall');
+        const startCommand = withClaudePluginDir(
+          adapter.getStartCommand(project.projectPath, permissionAllow),
+          integration.claudePluginDir,
+        );
+        const exportPrefix = buildExportPrefix(buildAgentLaunchEnv({
+          projectName: project.projectName,
+          port,
+          agentType: instance.agentType,
+          instanceId: instance.instanceId,
+          permissionAllow: instance.agentType === 'opencode' && permissionAllow,
+        }));
+
+        this.runtime.startAgentInWindow(project.tmuxSession, windowName, `${exportPrefix}${startCommand}`);
+      }
+    }
   }
 }
 

@@ -16,6 +16,7 @@ import {
   getEnabledAgentNames,
   resolveProjectWindowName,
 } from '../common/tmux.js';
+import { RuntimeStreamClient, getDefaultRuntimeSocketPath } from '../common/runtime-stream-client.js';
 import { attachCommand } from './attach.js';
 import { newCommand } from './new.js';
 import { stopCommand } from './stop.js';
@@ -235,6 +236,89 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   let runtimeWindowsCache: RuntimeWindowsPayload | null = null;
   const runtimeBufferOffsets = new Map<string, number>();
   const runtimeBufferCache = new Map<string, string>();
+  const runtimeFrameCache = new Map<string, string>();
+  const runtimeFrameLines = new Map<string, string[]>();
+  const runtimeFrameListeners = new Set<(frame: { sessionName: string; windowName: string; output: string }) => void>();
+  const streamSubscriptions = new Map<string, { cols: number; rows: number }>();
+
+  const splitWindowId = (windowId: string): { sessionName: string; windowName: string } | null => {
+    const idx = windowId.indexOf(':');
+    if (idx <= 0 || idx >= windowId.length - 1) return null;
+    return {
+      sessionName: windowId.slice(0, idx),
+      windowName: windowId.slice(idx + 1),
+    };
+  };
+
+  const streamClient = new RuntimeStreamClient(getDefaultRuntimeSocketPath(), {
+    onFrame: (frame) => {
+      const output = frame.lines.join('\n');
+      runtimeFrameLines.set(frame.windowId, frame.lines.slice());
+      runtimeFrameCache.set(frame.windowId, output);
+      const parsed = splitWindowId(frame.windowId);
+      if (parsed) {
+        for (const listener of runtimeFrameListeners) {
+          listener({
+            sessionName: parsed.sessionName,
+            windowName: parsed.windowName,
+            output,
+          });
+        }
+      }
+      runtimeSupported = true;
+    },
+    onPatch: (patch) => {
+      const current = runtimeFrameLines.get(patch.windowId) || [];
+      const next = current.slice(0, patch.lineCount);
+      while (next.length < patch.lineCount) next.push('');
+      for (const op of patch.ops) {
+        if (op.index >= 0 && op.index < patch.lineCount) {
+          next[op.index] = op.line;
+        }
+      }
+
+      const output = next.join('\n');
+      runtimeFrameLines.set(patch.windowId, next);
+      runtimeFrameCache.set(patch.windowId, output);
+
+      const parsed = splitWindowId(patch.windowId);
+      if (parsed) {
+        for (const listener of runtimeFrameListeners) {
+          listener({
+            sessionName: parsed.sessionName,
+            windowName: parsed.windowName,
+            output,
+          });
+        }
+      }
+      runtimeSupported = true;
+    },
+  });
+  let runtimeStreamConnected = await streamClient.connect();
+  let lastStreamConnectAttemptAt = Date.now();
+
+  const ensureStreamConnected = async (): Promise<boolean> => {
+    if (runtimeStreamConnected && streamClient.isConnected()) {
+      return true;
+    }
+    const now = Date.now();
+    if (now - lastStreamConnectAttemptAt < 1000) {
+      return runtimeStreamConnected;
+    }
+    lastStreamConnectAttemptAt = now;
+    runtimeStreamConnected = await streamClient.connect().catch(() => false);
+    return runtimeStreamConnected;
+  };
+
+  const ensureStreamSubscribed = (windowId: string, width?: number, height?: number): void => {
+    if (!runtimeStreamConnected) return;
+    const cols = Math.max(30, Math.min(240, Math.floor(width || 120)));
+    const rows = Math.max(10, Math.min(120, Math.floor(height || 40)));
+    const prev = streamSubscriptions.get(windowId);
+    if (prev && prev.cols === cols && prev.rows === rows) return;
+    streamClient.subscribe(windowId, cols, rows);
+    streamSubscriptions.set(windowId, { cols, rows });
+  };
 
   const fetchRuntimeWindows = async (): Promise<RuntimeWindowsPayload | null> => {
     try {
@@ -264,6 +348,10 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   };
 
   const focusRuntimeWindow = async (windowId: string): Promise<boolean> => {
+    if (runtimeStreamConnected) {
+      streamClient.focus(windowId);
+    }
+
     try {
       const result = await requestRuntimeApi({
         port: runtimePort,
@@ -284,9 +372,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       if (result.status === 501 || result.status === 404 || result.status === 405) {
         runtimeSupported = false;
       }
+      if (result.status === 0 && runtimeStreamConnected) {
+        return true;
+      }
       return false;
     } catch {
-      return false;
+      return runtimeStreamConnected;
     }
   };
 
@@ -306,12 +397,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
 
   const parseWindowId = (windowId: string | undefined): { sessionName: string; windowName: string } | null => {
     if (!windowId) return null;
-    const idx = windowId.indexOf(':');
-    if (idx <= 0 || idx >= windowId.length - 1) return null;
-    return {
-      sessionName: windowId.slice(0, idx),
-      windowName: windowId.slice(idx + 1),
-    };
+    return splitWindowId(windowId);
   };
 
   const readRuntimeWindowOutput = async (
@@ -320,11 +406,22 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     width?: number,
     height?: number,
   ): Promise<string | undefined> => {
+    await ensureStreamConnected();
+
     if (runtimeSupported === false) {
       return undefined;
     }
 
     const windowId = `${sessionName}:${windowName}`;
+
+    if (runtimeStreamConnected) {
+      ensureStreamSubscribed(windowId, width, height);
+      const frame = runtimeFrameCache.get(windowId);
+      if (frame !== undefined) {
+        return frame;
+      }
+    }
+
     const since = runtimeBufferOffsets.get(windowId) || 0;
     try {
       const path = `/runtime/buffer?windowId=${encodeURIComponent(windowId)}&since=${since}`;
@@ -358,8 +455,14 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   };
 
   const sendRuntimeRawKey = async (sessionName: string, windowName: string, raw: string): Promise<void> => {
+    await ensureStreamConnected();
+
     if (!raw || runtimeSupported === false) return;
     const windowId = `${sessionName}:${windowName}`;
+    if (runtimeStreamConnected) {
+      streamClient.input(windowId, Buffer.from(raw, 'latin1'));
+      return;
+    }
     await requestRuntimeApi({
       port: runtimePort,
       method: 'POST',
@@ -370,6 +473,21 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         submit: false,
       },
     }).catch(() => ({ status: 0, body: '' }));
+  };
+
+  const sendRuntimeResize = async (sessionName: string, windowName: string, width: number, height: number): Promise<void> => {
+    await ensureStreamConnected();
+    if (!runtimeStreamConnected) return;
+    const windowId = `${sessionName}:${windowName}`;
+    streamClient.resize(windowId, width, height);
+    ensureStreamSubscribed(windowId, width, height);
+  };
+
+  const registerRuntimeFrameListener = (listener: (frame: { sessionName: string; windowName: string; output: string }) => void): (() => void) => {
+    runtimeFrameListeners.add(listener);
+    return () => {
+      runtimeFrameListeners.delete(listener);
+    };
   };
 
   const handler = async (command: string, append: (line: string) => void): Promise<boolean> => {
@@ -631,6 +749,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     if (runtimeSupported !== false) {
       const focusedWindowId = runtimeWindowsCache?.activeWindowId;
       if (focusedWindowId) {
+        if (runtimeStreamConnected) {
+          streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'latin1'));
+          append(`→ sent to ${focusedWindowId}`);
+          return false;
+        }
+
         const sent = await requestRuntimeApi({
           port: runtimePort,
           method: 'POST',
@@ -813,8 +937,15 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       onRuntimeKey: async (sessionName: string, windowName: string, raw: string) => {
         await sendRuntimeRawKey(sessionName, windowName, raw);
       },
+      onRuntimeResize: async (sessionName: string, windowName: string, width: number, height: number) => {
+        await sendRuntimeResize(sessionName, windowName, width, height);
+      },
+      onRuntimeFrame: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => {
+        return registerRuntimeFrameListener(listener);
+      },
     });
   } finally {
+    streamClient.disconnect();
     clearTmuxHealthTimer();
     process.off('exit', clearTmuxHealthTimer);
   }

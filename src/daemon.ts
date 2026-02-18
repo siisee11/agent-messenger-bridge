@@ -84,10 +84,14 @@ export class DaemonManager {
     const err = openSync(logFile, 'a');
 
     // Use caffeinate on macOS to prevent sleep while daemon is running.
-    // Runtime is Bun to match CLI/TUI execution.
+    // Prefer Node for built JS entrypoints (node-pty compatibility),
+    // fallback to Bun for TS source entrypoints.
     const isMac = process.platform === 'darwin';
-    const command = isMac ? 'caffeinate' : 'bun';
-    const args = isMac ? ['-ims', 'bun', entryPoint] : [entryPoint];
+    const isTsEntry = /\.ts$/i.test(entryPoint);
+    const nodeExec = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
+    const runtimeCommand = isTsEntry ? 'bun' : nodeExec;
+    const command = isMac ? 'caffeinate' : runtimeCommand;
+    const args = isMac ? ['-ims', runtimeCommand, entryPoint] : [entryPoint];
 
     const child = this.processManager.spawn(command, args, {
       detached: true,

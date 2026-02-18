@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { createRequire } from 'module';
+import { chmodSync, existsSync, statSync } from 'fs';
+import { dirname, join, resolve } from 'path';
 import type { AgentRuntime } from './interface.js';
 
 const require = createRequire(import.meta.url);
@@ -129,6 +131,10 @@ export class PtyRuntime implements AgentRuntime {
 
         pty.onData((data: string) => {
           this.appendBuffer(record, data);
+          const response = this.buildTerminalResponse(data, parseInt(env.COLUMNS || '140', 10), parseInt(env.LINES || '40', 10));
+          if (response.length > 0) {
+            pty.write(response);
+          }
         });
 
         pty.onExit((event) => {
@@ -200,7 +206,7 @@ export class PtyRuntime implements AgentRuntime {
   sendEnterToWindow(sessionName: string, windowName: string): void {
     const record = this.getRunningWindowRecord(sessionName, windowName);
     if (record.pty) {
-      record.pty.write('\n');
+      record.pty.write('\r');
       return;
     }
     record.process!.stdin.write('\n');
@@ -267,11 +273,30 @@ export class PtyRuntime implements AgentRuntime {
     if (!this.useNodePty) return null;
     if (this.nodePty !== undefined) return this.nodePty;
     try {
+      this.ensureNodePtyHelperExecutable();
       this.nodePty = require('node-pty') as NodePtyModule;
     } catch {
       this.nodePty = null;
     }
     return this.nodePty;
+  }
+
+  private ensureNodePtyHelperExecutable(): void {
+    if (process.platform === 'win32') return;
+
+    try {
+      const unixTerminalPath = require.resolve('node-pty/lib/unixTerminal.js');
+      const nodePtyRoot = resolve(dirname(unixTerminalPath), '..');
+      const helperPath = join(nodePtyRoot, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper');
+      if (!existsSync(helperPath)) return;
+
+      const mode = statSync(helperPath).mode;
+      if ((mode & 0o111) !== 0) return;
+
+      chmodSync(helperPath, mode | 0o755);
+    } catch {
+      // Non-fatal: fallback path will still work when node-pty is unavailable.
+    }
   }
 
   private ensureSession(sessionName: string): RuntimeSessionRecord {
@@ -315,6 +340,57 @@ export class PtyRuntime implements AgentRuntime {
     if (record.buffer.length > this.maxBufferBytes) {
       record.buffer = record.buffer.slice(record.buffer.length - this.maxBufferBytes);
     }
+  }
+
+  private buildTerminalResponse(chunk: string, cols: number, rows: number): string {
+    let out = '';
+
+    const sixNCount = this.countMatches(chunk, /\x1b\[6n/g);
+    for (let i = 0; i < sixNCount; i += 1) {
+      out += '\x1b[1;1R';
+    }
+
+    const privateQuery = /\x1b\[\?(\d+)\$p/g;
+    let privateMatch = privateQuery.exec(chunk);
+    while (privateMatch) {
+      out += `\x1b[?${privateMatch[1]};1$y`;
+      privateMatch = privateQuery.exec(chunk);
+    }
+
+    if (chunk.includes('\x1b[?u')) {
+      out += '\x1b[?0u';
+    }
+
+    const winSizeCount = this.countMatches(chunk, /\x1b\[14t/g);
+    for (let i = 0; i < winSizeCount; i += 1) {
+      const widthPx = Math.max(320, cols * 11);
+      const heightPx = Math.max(200, rows * 22);
+      out += `\x1b[4;${heightPx};${widthPx}t`;
+    }
+
+    const daCount = this.countMatches(chunk, /\x1b\[c/g);
+    for (let i = 0; i < daCount; i += 1) {
+      out += '\x1b[?62;c';
+    }
+
+    if (chunk.includes('\x1b]11;?\x07')) {
+      out += '\x1b]11;rgb:0a0a/0a0a/0a0a\x07';
+    }
+
+    if (chunk.includes('\x1b]4;0;?\x07')) {
+      out += '\x1b]4;0;rgb:0a0a/0a0a/0a0a\x07';
+    }
+
+    if (chunk.includes('\x1b_G') && chunk.includes('a=q')) {
+      out += '\x1b_Gi=31337;OK\x1b\\';
+    }
+
+    return out;
+  }
+
+  private countMatches(value: string, pattern: RegExp): number {
+    const matches = value.match(pattern);
+    return matches ? matches.length : 0;
   }
 
   private windowKey(sessionName: string, windowName: string): string {

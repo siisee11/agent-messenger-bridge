@@ -23,12 +23,20 @@ export async function ensureDaemonRunning(): Promise<EnsureDaemonRunningResult> 
     };
   }
 
+  const repoHints = [
+    process.env.DISCODE_REPO,
+    process.cwd(),
+  ].filter((value): value is string => !!value && value.length > 0);
+
   const entryPointCandidates = [
-    // Bundled CLI output places daemon entry under dist/src.
+    // Preferred: built JS daemon entry (Node runtime friendly, required for node-pty stability).
+    ...repoHints.map((root) => resolve(root, 'dist/src/daemon-entry.js')),
+    ...repoHints.map((root) => resolve(root, 'dist/daemon-entry.js')),
+    // Relative candidates for packaged layouts.
     resolve(import.meta.dirname, '../src/daemon-entry.js'),
-    // Legacy build layout.
     resolve(import.meta.dirname, '../daemon-entry.js'),
-    // Source layout for direct TS execution.
+    // Source layout fallback (requires Bun TS runtime).
+    ...repoHints.map((root) => resolve(root, 'src/daemon-entry.ts')),
     resolve(import.meta.dirname, '../daemon-entry.ts'),
     resolve(import.meta.dirname, '../src/daemon-entry.ts'),
   ];

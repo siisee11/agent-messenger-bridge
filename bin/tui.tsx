@@ -5,7 +5,7 @@ import { InputRenderable, RGBA, TextAttributes, TextareaRenderable } from '@open
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 
 declare const DISCODE_VERSION: string | undefined;
 
@@ -41,6 +41,8 @@ type TuiInput = {
   onStopProject: (project: string) => Promise<void>;
   onAttachProject: (project: string) => Promise<{ currentSession?: string; currentWindow?: string } | void>;
   onRuntimeKey?: (sessionName: string, windowName: string, raw: string) => Promise<void>;
+  onRuntimeResize?: (sessionName: string, windowName: string, width: number, height: number) => Promise<void> | void;
+  onRuntimeFrame?: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => () => void;
   getCurrentWindowOutput?: (sessionName: string, windowName: string, width?: number, height?: number) => Promise<string | undefined>;
   getProjects: () =>
     | Array<{
@@ -418,7 +420,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     shift?: boolean;
   }): string | null => {
     const name = evt.name || '';
-    if (name === 'return' || name === 'enter') return '\n';
+    if (name === 'return' || name === 'enter') return '\r';
     if (name === 'backspace') return '\x7f';
     if (name === 'tab') return '\t';
     if (name === 'escape') return '\x1b';
@@ -614,11 +616,15 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
 
   onMount(() => {
     let stopped = false;
-    const refresh = async () => {
+    let detachRuntimeFrame: (() => void) | undefined;
+
+    const refreshProjects = async () => {
       const next = await props.input.getProjects();
       if (stopped) return;
       setProjects(next);
+    };
 
+    const syncOutput = async () => {
       const session = currentSession();
       const window = currentWindow();
       if (!session || !window || !props.input.getCurrentWindowOutput) {
@@ -632,13 +638,39 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       if (stopped) return;
       setWindowOutput(output || '');
     };
-    void refresh();
-    const timer = setInterval(() => {
-      void refresh();
-    }, 350);
+
+    if (props.input.onRuntimeFrame) {
+      detachRuntimeFrame = props.input.onRuntimeFrame((frame) => {
+        if (frame.sessionName !== currentSession() || frame.windowName !== currentWindow()) return;
+        setWindowOutput(frame.output || '');
+      });
+    }
+
+    createEffect(() => {
+      const session = currentSession();
+      const window = currentWindow();
+      const width = terminalPanelWidth();
+      const height = terminalPanelHeight();
+      if (session && window && props.input.onRuntimeResize) {
+        void props.input.onRuntimeResize(session, window, width, height);
+      }
+      void syncOutput();
+    });
+
+    void refreshProjects();
+    void syncOutput();
+    const projectTimer = setInterval(() => {
+      void refreshProjects();
+    }, 2000);
+    const outputFallbackTimer = setInterval(() => {
+      void syncOutput();
+    }, 1200);
+
     onCleanup(() => {
       stopped = true;
-      clearInterval(timer);
+      clearInterval(projectTimer);
+      clearInterval(outputFallbackTimer);
+      detachRuntimeFrame?.();
     });
     setTimeout(() => textarea?.focus(), 1);
   });
