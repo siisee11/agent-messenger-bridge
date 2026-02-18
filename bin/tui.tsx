@@ -46,16 +46,14 @@ type TuiInput = {
   onRuntimeFrame?: (listener: (frame: { sessionName: string; windowName: string; output: string; styled?: TerminalStyledLine[] }) => void) => () => void;
   getRuntimeStatus?: () =>
     | {
-      mode: 'stream' | 'http-fallback';
+      mode: 'stream';
       connected: boolean;
-      fallback: boolean;
       detail: string;
       lastError?: string;
     }
     | Promise<{
-      mode: 'stream' | 'http-fallback';
+      mode: 'stream';
       connected: boolean;
-      fallback: boolean;
       detail: string;
       lastError?: string;
     }>;
@@ -837,12 +835,11 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         const status = await props.input.getRuntimeStatus();
         if (stopped || !status) return;
         const suffix = status.lastError ? ` (${status.lastError})` : '';
-        const line =
-          status.mode === 'stream' && status.connected
-            ? `transport: stream (${status.detail})`
-            : `transport: http fallback (${status.detail})${suffix}`;
+        const line = status.connected
+          ? `transport: stream (${status.detail})`
+          : `transport: stream error (${status.detail})${suffix}`;
         setRuntimeStatusLine(line.length > 52 ? `${line.slice(0, 49)}...` : line);
-        if (status.mode === 'http-fallback') {
+        if (!status.connected) {
           setWindowStyledLines(undefined);
         }
       }

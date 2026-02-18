@@ -20,7 +20,6 @@ import { RuntimeStreamClient, getDefaultRuntimeSocketPath } from '../common/runt
 import { attachCommand } from './attach.js';
 import { newCommand } from './new.js';
 import { stopCommand } from './stop.js';
-import { renderTerminalSnapshot } from '../../capture/parser.js';
 import type { TerminalStyledLine } from '../../runtime/vt-screen.js';
 
 type RuntimeWindowPayload = {
@@ -36,22 +35,14 @@ type RuntimeWindowsPayload = {
   windows: RuntimeWindowPayload[];
 };
 
-type RuntimeBufferPayload = {
-  windowId: string;
-  since: number;
-  next: number;
-  chunk: string;
-};
-
 type HttpJsonResult = {
   status: number;
   body: string;
 };
 
 type RuntimeTransportStatus = {
-  mode: 'stream' | 'http-fallback';
+  mode: 'stream';
   connected: boolean;
-  fallback: boolean;
   detail: string;
   lastError?: string;
 };
@@ -119,24 +110,6 @@ function parseRuntimeWindowsPayload(raw: string): RuntimeWindowsPayload | null {
     return {
       activeWindowId: typeof parsed.activeWindowId === 'string' ? parsed.activeWindowId : undefined,
       windows,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseRuntimeBufferPayload(raw: string): RuntimeBufferPayload | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<RuntimeBufferPayload>;
-    if (typeof parsed.windowId !== 'string') return null;
-    if (typeof parsed.since !== 'number') return null;
-    if (typeof parsed.next !== 'number') return null;
-    if (typeof parsed.chunk !== 'string') return null;
-    return {
-      windowId: parsed.windowId,
-      since: parsed.since,
-      next: parsed.next,
-      chunk: parsed.chunk,
     };
   } catch {
     return null;
@@ -244,13 +217,10 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   let runtimeSupported: boolean | undefined;
   let runtimeWindowsCache: RuntimeWindowsPayload | null = null;
   let transportStatus: RuntimeTransportStatus = {
-    mode: 'http-fallback',
+    mode: 'stream',
     connected: false,
-    fallback: true,
-    detail: 'stream unavailable',
+    detail: 'stream disconnected',
   };
-  const runtimeBufferOffsets = new Map<string, number>();
-  const runtimeBufferCache = new Map<string, string>();
   const runtimeFrameCache = new Map<string, string>();
   const runtimeFrameLines = new Map<string, string[]>();
   const runtimeStyledCache = new Map<string, TerminalStyledLine[]>();
@@ -418,16 +388,14 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       setTransportStatus({
         mode: 'stream',
         connected: true,
-        fallback: false,
         detail: `window exited: ${event.windowId}`,
       });
     },
     onError: (message) => {
       setTransportStatus({
-        mode: 'http-fallback',
+        mode: 'stream',
         connected: false,
-        fallback: true,
-        detail: 'stream error, using fallback',
+        detail: 'stream error',
         lastError: message,
       });
     },
@@ -438,17 +406,16 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         setTransportStatus({
           mode: 'stream',
           connected: true,
-          fallback: false,
           detail: 'stream connected',
+          lastError: undefined,
         });
       } else {
         runtimeStreamConnected = false;
         streamSubscriptions.clear();
         setTransportStatus({
-          mode: 'http-fallback',
+          mode: 'stream',
           connected: false,
-          fallback: true,
-          detail: 'stream disconnected, using fallback',
+          detail: 'stream disconnected',
         });
       }
     },
@@ -458,9 +425,11 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     setTransportStatus({
       mode: 'stream',
       connected: true,
-      fallback: false,
       detail: 'stream connected',
+      lastError: undefined,
     });
+  } else {
+    throw new Error('Runtime stream unavailable. HTTP fallback has been removed; restart the daemon and try again.');
   }
   let lastStreamConnectAttemptAt = Date.now();
 
@@ -478,18 +447,24 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       setTransportStatus({
         mode: 'stream',
         connected: true,
-        fallback: false,
         detail: 'stream connected',
+        lastError: undefined,
       });
     } else {
       setTransportStatus({
-        mode: 'http-fallback',
+        mode: 'stream',
         connected: false,
-        fallback: true,
-        detail: 'stream unavailable, using fallback',
+        detail: 'stream unavailable',
       });
     }
     return runtimeStreamConnected;
+  };
+
+  const requireStreamConnected = async (context: string): Promise<void> => {
+    const connected = await ensureStreamConnected();
+    if (connected && streamClient.isConnected()) return;
+    const detail = transportStatus.lastError ? `${transportStatus.detail}: ${transportStatus.lastError}` : transportStatus.detail;
+    throw new Error(`Runtime stream is required for ${context} (${detail}).`);
   };
 
   const ensureStreamSubscribed = (windowId: string, width?: number, height?: number): void => {
@@ -588,121 +563,59 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     width?: number,
     height?: number,
   ): Promise<string | undefined> => {
-    await ensureStreamConnected();
+    await requireStreamConnected('window output');
 
     if (runtimeSupported === false) {
-      return undefined;
+      throw new Error('Runtime stream support is unavailable in the running daemon.');
     }
 
     const windowId = `${sessionName}:${windowName}`;
 
-    if (runtimeStreamConnected) {
-      ensureStreamSubscribed(windowId, width, height);
-      const frame = runtimeFrameCache.get(windowId);
-      if (frame !== undefined) {
-        setTransportStatus({
-          mode: 'stream',
-          connected: true,
-          fallback: false,
-          detail: 'stream live',
-        });
-        return frame;
-      }
-
-      const subscribed = streamSubscriptions.get(windowId);
-      if (subscribed && Date.now() - subscribed.subscribedAt < 1500) {
-        // Stream-first path: avoid immediate HTTP fallback while waiting
-        // for first pushed frame after subscribe/reconnect.
-        return undefined;
-      }
-    }
-
-    const since = runtimeBufferOffsets.get(windowId) || 0;
-    try {
-      const path = `/runtime/buffer?windowId=${encodeURIComponent(windowId)}&since=${since}`;
-      const result = await requestRuntimeApi({
-        port: runtimePort,
-        method: 'GET',
-        path,
-      });
-
-      if (result.status !== 200) {
-        if (result.status === 501 || result.status === 404 || result.status === 405) {
-          runtimeSupported = false;
-          return undefined;
-        }
-        setTransportStatus({
-          mode: 'http-fallback',
-          connected: false,
-          fallback: true,
-          detail: `fallback buffer read (status ${result.status})`,
-        });
-        return runtimeBufferCache.get(windowId);
-      }
-
-      const payload = parseRuntimeBufferPayload(result.body);
-      if (!payload) return runtimeBufferCache.get(windowId);
-
-      const nextOutput = `${runtimeBufferCache.get(windowId) || ''}${payload.chunk}`;
-      const trimmed = nextOutput.length > 32768 ? nextOutput.slice(nextOutput.length - 32768) : nextOutput;
-      runtimeBufferCache.set(windowId, trimmed);
-      runtimeBufferOffsets.set(windowId, payload.next);
-      runtimeSupported = true;
-      setTransportStatus({
-        mode: 'http-fallback',
-        connected: false,
-        fallback: true,
-        detail: 'fallback buffer read',
-      });
-      return renderTerminalSnapshot(trimmed, { width, height });
-    } catch {
-      const raw = runtimeBufferCache.get(windowId);
-      setTransportStatus({
-        mode: 'http-fallback',
-        connected: false,
-        fallback: true,
-        detail: 'fallback buffer cache',
-      });
-      return raw ? renderTerminalSnapshot(raw, { width, height }) : raw;
-    }
-  };
-
-  const sendRuntimeRawKey = async (sessionName: string, windowName: string, raw: string): Promise<void> => {
-    await ensureStreamConnected();
-
-    if (!raw || runtimeSupported === false) return;
-    const windowId = `${sessionName}:${windowName}`;
-    if (runtimeStreamConnected) {
-      streamClient.input(windowId, Buffer.from(raw, 'utf8'));
+    ensureStreamSubscribed(windowId, width, height);
+    const frame = runtimeFrameCache.get(windowId);
+    if (frame !== undefined) {
       setTransportStatus({
         mode: 'stream',
         connected: true,
-        fallback: false,
-        detail: 'stream input',
+        detail: 'stream live',
       });
-      return;
+      return frame;
     }
-    await requestRuntimeApi({
-      port: runtimePort,
-      method: 'POST',
-      path: '/runtime/input',
-      payload: {
-        windowId,
-        text: raw,
-        submit: false,
-      },
-    }).catch(() => ({ status: 0, body: '' }));
+
+    const subscribed = streamSubscriptions.get(windowId);
+    if (subscribed && Date.now() - subscribed.subscribedAt < 1500) {
+      return undefined;
+    }
+
     setTransportStatus({
-      mode: 'http-fallback',
-      connected: false,
-      fallback: true,
-      detail: 'fallback input',
+      mode: 'stream',
+      connected: true,
+      detail: 'waiting for stream frame',
+    });
+    return undefined;
+  };
+
+  const sendRuntimeRawKey = async (sessionName: string, windowName: string, raw: string): Promise<void> => {
+    await requireStreamConnected('runtime input');
+
+    if (!raw) return;
+    if (runtimeSupported === false) {
+      throw new Error('Runtime stream support is unavailable in the running daemon.');
+    }
+    const windowId = `${sessionName}:${windowName}`;
+    streamClient.input(windowId, Buffer.from(raw, 'utf8'));
+    setTransportStatus({
+      mode: 'stream',
+      connected: true,
+      detail: 'stream input',
     });
   };
 
   const sendRuntimeResize = async (sessionName: string, windowName: string, width: number, height: number): Promise<void> => {
-    await ensureStreamConnected();
-    if (!runtimeStreamConnected) return;
+    await requireStreamConnected('runtime resize');
+    if (runtimeSupported === false) {
+      throw new Error('Runtime stream support is unavailable in the running daemon.');
+    }
     const windowId = `${sessionName}:${windowName}`;
     streamClient.resize(windowId, width, height);
     ensureStreamSubscribed(windowId, width, height);
@@ -1006,39 +919,15 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     if (runtimeSupported !== false) {
       const focusedWindowId = runtimeWindowsCache?.activeWindowId;
       if (focusedWindowId) {
-        if (runtimeStreamConnected) {
-          streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'utf8'));
-          setTransportStatus({
-            mode: 'stream',
-            connected: true,
-            fallback: false,
-            detail: 'stream input',
-          });
-          append(`→ sent to ${focusedWindowId}`);
-          return false;
-        }
-
-        const sent = await requestRuntimeApi({
-          port: runtimePort,
-          method: 'POST',
-          path: '/runtime/input',
-          payload: {
-            windowId: focusedWindowId,
-            text: command,
-            submit: true,
-          },
-        }).catch(() => ({ status: 0, body: '' }));
-
-        if (sent.status === 200) {
-          setTransportStatus({
-            mode: 'http-fallback',
-            connected: false,
-            fallback: true,
-            detail: 'fallback input',
-          });
-          append(`→ sent to ${focusedWindowId}`);
-          return false;
-        }
+        await requireStreamConnected('command input');
+        streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'utf8'));
+        setTransportStatus({
+          mode: 'stream',
+          connected: true,
+          detail: 'stream input',
+        });
+        append(`→ sent to ${focusedWindowId}`);
+        return false;
       }
     }
 
@@ -1217,7 +1106,6 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         return {
           mode: transportStatus.mode,
           connected: transportStatus.connected,
-          fallback: transportStatus.fallback,
           detail: transportStatus.detail,
           lastError: transportStatus.lastError,
         };
