@@ -273,6 +273,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     };
   };
 
+  let runtimeStreamConnected = false;
   const streamClient = new RuntimeStreamClient(getDefaultRuntimeSocketPath(), {
     onFrame: (frame) => {
       const output = frame.lines.join('\n');
@@ -432,6 +433,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     },
     onStateChange: (state) => {
       if (state === 'connected') {
+        runtimeStreamConnected = true;
         streamSubscriptions.clear();
         setTransportStatus({
           mode: 'stream',
@@ -451,7 +453,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       }
     },
   });
-  let runtimeStreamConnected = await streamClient.connect();
+  runtimeStreamConnected = await streamClient.connect();
   if (runtimeStreamConnected) {
     setTransportStatus({
       mode: 'stream',

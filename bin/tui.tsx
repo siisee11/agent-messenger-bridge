@@ -724,10 +724,6 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     <box width={dims().width} height={dims().height} backgroundColor={palette.bg} flexDirection="column">
       <box flexGrow={1} backgroundColor={palette.bg} flexDirection="row" paddingLeft={1} paddingRight={1} paddingTop={1}>
         <box flexGrow={1} border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column" paddingLeft={1} paddingRight={1}>
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg={palette.primary} attributes={TextAttributes.BOLD}>Agent Terminal</text>
-            <text fg={palette.muted}>{`${currentSession() || '-'}:${currentWindow() || '-'}`}</text>
-          </box>
           <box flexDirection="column" flexGrow={1}>
             <Show when={currentWindow()} fallback={<text fg={palette.muted}>No active window</text>}>
               <Show when={windowOutput().length > 0} fallback={<text fg={palette.muted}>Waiting for agent output...</text>}>
@@ -800,27 +796,83 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
               </For>
             </Show>
           </box>
-        </box>
-      </box>
 
-      <Show when={matches().length > 0}>
-        <box backgroundColor={palette.bg} paddingLeft={2} paddingRight={2} paddingBottom={1}>
-          <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
-            <For each={matches().slice(0, 6)}>
-              {(item, index) => (
-                <box
-                  paddingLeft={1}
-                  paddingRight={1}
-                  backgroundColor={selected() === index() ? palette.selectedBg : palette.panel}
-                >
-                  <text fg={selected() === index() ? palette.selectedFg : palette.text}>{item.command}</text>
-                  <text fg={palette.muted}>{`  ${item.description}`}</text>
-                </box>
-              )}
-            </For>
+          <box flexGrow={1} />
+
+          <Show when={matches().length > 0}>
+            <box marginTop={1} border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
+              <For each={matches().slice(0, 6)}>
+                {(item, index) => (
+                  <box
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={selected() === index() ? palette.selectedBg : palette.panel}
+                  >
+                    <text fg={selected() === index() ? palette.selectedFg : palette.text}>{item.command}</text>
+                    <text fg={palette.muted}>{`  ${item.description}`}</text>
+                  </box>
+                )}
+              </For>
+            </box>
+          </Show>
+
+          <box marginTop={1} marginBottom={1} border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
+            <box paddingLeft={1} paddingRight={1}>
+              <text fg={palette.primary} attributes={TextAttributes.BOLD}>{'discode> '}</text>
+            </box>
+            <box paddingLeft={1} paddingRight={1}>
+              <textarea
+                ref={(input: TextareaRenderable) => {
+                  textarea = input;
+                }}
+                minHeight={1}
+                maxHeight={4}
+                onSubmit={submit}
+                keyBindings={[{ name: 'return', action: 'submit' }]}
+                placeholder={runtimeInputMode() ? 'Press / to enter command mode' : 'Type a command'}
+                textColor={palette.text}
+                focusedTextColor={palette.text}
+                cursorColor={palette.primary}
+                onContentChange={() => {
+                  const next = textarea.plainText;
+                  setValue(next);
+                  setSelected(0);
+                }}
+                onKeyDown={(event) => {
+                  if (paletteOpen() || stopOpen() || newOpen() || listOpen()) {
+                    event.preventDefault();
+                    return;
+                  }
+                  if (runtimeInputMode() && !value().startsWith('/') && event.sequence !== '/') {
+                    event.preventDefault();
+                    return;
+                  }
+                  if (matches().length === 0) return;
+                  if (event.name === 'up') {
+                    event.preventDefault();
+                    clampSelection(-1);
+                    return;
+                  }
+                  if (event.name === 'down') {
+                    event.preventDefault();
+                    clampSelection(1);
+                    return;
+                  }
+                  if (event.name === 'tab') {
+                    event.preventDefault();
+                    applySelection();
+                    return;
+                  }
+                  if (event.name === 'return' && query() !== null) {
+                    event.preventDefault();
+                    applySelection();
+                  }
+                }}
+              />
+            </box>
           </box>
         </box>
-      </Show>
+      </box>
 
       <Show when={newOpen()}>
         <box
@@ -1014,64 +1066,6 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
           </box>
         </box>
       </Show>
-
-      <box backgroundColor={palette.bg} paddingLeft={2} paddingRight={2} paddingBottom={1}>
-        <box border borderColor={palette.border} backgroundColor={palette.panel} flexDirection="column">
-          <box paddingLeft={1} paddingRight={1}>
-            <text fg={palette.primary} attributes={TextAttributes.BOLD}>{'discode> '}</text>
-          </box>
-          <box paddingLeft={1} paddingRight={1}>
-            <textarea
-              ref={(input: TextareaRenderable) => {
-                textarea = input;
-              }}
-              minHeight={1}
-              maxHeight={4}
-              onSubmit={submit}
-              keyBindings={[{ name: 'return', action: 'submit' }]}
-              placeholder={runtimeInputMode() ? 'Press / to enter command mode' : 'Type a command'}
-              textColor={palette.text}
-              focusedTextColor={palette.text}
-              cursorColor={palette.primary}
-              onContentChange={() => {
-                const next = textarea.plainText;
-                setValue(next);
-                setSelected(0);
-              }}
-              onKeyDown={(event) => {
-                if (paletteOpen() || stopOpen() || newOpen() || listOpen()) {
-                  event.preventDefault();
-                  return;
-                }
-                if (runtimeInputMode() && !value().startsWith('/') && event.sequence !== '/') {
-                  event.preventDefault();
-                  return;
-                }
-                if (matches().length === 0) return;
-                if (event.name === 'up') {
-                  event.preventDefault();
-                  clampSelection(-1);
-                  return;
-                }
-                if (event.name === 'down') {
-                  event.preventDefault();
-                  clampSelection(1);
-                  return;
-                }
-                if (event.name === 'tab') {
-                  event.preventDefault();
-                  applySelection();
-                  return;
-                }
-                if (event.name === 'return' && query() !== null) {
-                  event.preventDefault();
-                  applySelection();
-                }
-              }}
-            />
-          </box>
-        </box>
-      </box>
     </box>
   );
 }
