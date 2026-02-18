@@ -39,6 +39,8 @@ type SavedScreenState = {
   cursorCol: number;
   savedRow: number;
   savedCol: number;
+  scrollTop: number;
+  scrollBottom: number;
 };
 
 export class VtScreen {
@@ -53,45 +55,92 @@ export class VtScreen {
   private currentStyle: TerminalStyle = {};
   private usingAltScreen = false;
   private savedPrimaryScreen?: SavedScreenState;
+  private pendingInput = '';
+  private scrollTop = 0;
+  private scrollBottom = 0;
 
   constructor(cols = 120, rows = 40, scrollback = 2000) {
     this.cols = clamp(cols, 20, 300);
     this.rows = clamp(rows, 6, 200);
     this.scrollback = Math.max(this.rows * 4, scrollback);
     this.lines = [this.makeLine(this.cols)];
+    this.scrollBottom = this.rows - 1;
   }
 
   write(chunk: string): void {
+    let data = this.pendingInput + chunk;
+    this.pendingInput = '';
+
+    if (data.length === 0) return;
+    if (data.length > 32_768) {
+      // Guard against pathological accumulation.
+      data = data.slice(-32_768);
+    }
+
     let i = 0;
-    while (i < chunk.length) {
-      const ch = chunk[i];
+    while (i < data.length) {
+      const ch = data[i];
 
       if (ch === '\x1b') {
-        const next = chunk[i + 1];
+        const next = data[i + 1];
+        if (next === undefined) {
+          this.pendingInput = data.slice(i);
+          break;
+        }
+
         if (next === '[') {
           let j = i + 2;
-          while (j < chunk.length && (chunk.charCodeAt(j) < 0x40 || chunk.charCodeAt(j) > 0x7e)) j += 1;
-          if (j >= chunk.length) break;
-          const final = chunk[j];
-          const raw = chunk.slice(i + 2, j);
+          while (j < data.length && (data.charCodeAt(j) < 0x40 || data.charCodeAt(j) > 0x7e)) j += 1;
+          if (j >= data.length) {
+            this.pendingInput = data.slice(i);
+            break;
+          }
+          const final = data[j];
+          const raw = data.slice(i + 2, j);
           this.handleCsi(raw, final);
           i = j + 1;
+          continue;
+        }
+
+        if (next === 'D') {
+          this.lineFeed();
+          i += 2;
+          continue;
+        }
+
+        if (next === 'E') {
+          this.cursorCol = 0;
+          this.lineFeed();
+          i += 2;
+          continue;
+        }
+
+        if (next === 'M') {
+          this.reverseIndex();
+          i += 2;
           continue;
         }
 
         if (next === ']') {
           // OSC
           let j = i + 2;
-          while (j < chunk.length) {
-            if (chunk[j] === '\x07') {
+          let terminated = false;
+          while (j < data.length) {
+            if (data[j] === '\x07') {
               j += 1;
+              terminated = true;
               break;
             }
-            if (chunk[j] === '\x1b' && chunk[j + 1] === '\\') {
+            if (data[j] === '\x1b' && data[j + 1] === '\\') {
               j += 2;
+              terminated = true;
               break;
             }
             j += 1;
+          }
+          if (!terminated) {
+            this.pendingInput = data.slice(i);
+            break;
           }
           i = j;
           continue;
@@ -108,9 +157,7 @@ export class VtScreen {
       }
 
       if (ch === '\n') {
-        this.cursorRow += 1;
-        this.cursorCol = 0;
-        this.ensureCursorRow();
+        this.lineFeed();
         i += 1;
         continue;
       }
@@ -130,7 +177,7 @@ export class VtScreen {
         continue;
       }
 
-      const code = chunk.charCodeAt(i);
+      const code = data.charCodeAt(i);
       if (code < 0x20 || code === 0x7f) {
         i += 1;
         continue;
@@ -159,6 +206,8 @@ export class VtScreen {
     this.rows = nextRows;
     this.scrollback = Math.max(this.rows * 4, this.scrollback);
     this.cursorCol = Math.min(this.cursorCol, this.cols - 1);
+    this.scrollTop = Math.max(0, Math.min(this.rows - 1, this.scrollTop));
+    this.scrollBottom = Math.max(this.scrollTop, Math.min(this.rows - 1, this.scrollBottom));
   }
 
   snapshot(cols?: number, rows?: number): TerminalStyledFrame {
@@ -180,6 +229,20 @@ export class VtScreen {
       lines,
       cursorRow,
       cursorCol,
+    };
+  }
+
+  getCursorPosition(): { row: number; col: number } {
+    return {
+      row: this.cursorRow,
+      col: this.cursorCol,
+    };
+  }
+
+  getDimensions(): { cols: number; rows: number } {
+    return {
+      cols: this.cols,
+      rows: this.rows,
     };
   }
 
@@ -227,6 +290,17 @@ export class VtScreen {
       case 'd':
         this.cursorRow = Math.max(0, param(0, 1) - 1);
         break;
+      case 'r': {
+        const top = Math.max(1, param(0, 1));
+        const bottom = parts.length >= 2 ? Math.max(1, param(1, this.rows)) : this.rows;
+        if (top < bottom && bottom <= this.rows) {
+          this.scrollTop = top - 1;
+          this.scrollBottom = bottom - 1;
+          this.cursorRow = 0;
+          this.cursorCol = 0;
+        }
+        break;
+      }
       case 'J':
         this.clearDisplay(param(0, 0));
         break;
@@ -293,8 +367,6 @@ export class VtScreen {
       if (this.usingAltScreen) {
         while (this.lines.length < this.rows) this.lines.push(this.makeLine(this.cols));
       }
-      this.cursorRow = 0;
-      this.cursorCol = 0;
       return;
     }
 
@@ -366,42 +438,39 @@ export class VtScreen {
 
   private insertLines(count: number): void {
     this.ensureCursorRow();
-    const n = Math.max(1, Math.min(this.rows, count));
+    if (!this.cursorWithinScrollRegion()) return;
+    const n = Math.max(1, Math.min(this.absoluteRowFromViewport(this.scrollBottom) - this.cursorRow + 1, count));
+    const bottom = this.absoluteRowFromViewport(this.scrollBottom);
     for (let i = 0; i < n; i += 1) {
       this.lines.splice(this.cursorRow, 0, this.makeLine(this.cols));
+      this.lines.splice(bottom + 1, 1);
     }
     this.trimBottomToRows();
   }
 
   private deleteLines(count: number): void {
     this.ensureCursorRow();
-    const n = Math.max(1, Math.min(this.rows, count));
+    if (!this.cursorWithinScrollRegion()) return;
+    const n = Math.max(1, Math.min(this.absoluteRowFromViewport(this.scrollBottom) - this.cursorRow + 1, count));
+    const bottom = this.absoluteRowFromViewport(this.scrollBottom);
     for (let i = 0; i < n; i += 1) {
       if (this.cursorRow < this.lines.length) {
         this.lines.splice(this.cursorRow, 1);
       }
-      this.lines.push(this.makeLine(this.cols));
+      this.lines.splice(bottom, 0, this.makeLine(this.cols));
     }
     this.trimBottomToRows();
   }
 
   private scrollUp(count: number): void {
     const n = Math.max(1, Math.min(this.rows, count));
-    for (let i = 0; i < n; i += 1) {
-      if (this.lines.length > 0) {
-        this.lines.shift();
-      }
-      this.lines.push(this.makeLine(this.cols));
-    }
+    this.scrollRegionUp(this.scrollTop, this.scrollBottom, n);
     this.trimBottomToRows();
   }
 
   private scrollDown(count: number): void {
     const n = Math.max(1, Math.min(this.rows, count));
-    for (let i = 0; i < n; i += 1) {
-      this.lines.unshift(this.makeLine(this.cols));
-      this.lines.pop();
-    }
+    this.scrollRegionDown(this.scrollTop, this.scrollBottom, n);
     this.trimBottomToRows();
   }
 
@@ -413,8 +482,7 @@ export class VtScreen {
     this.cursorCol += 1;
     if (this.cursorCol >= this.cols) {
       this.cursorCol = 0;
-      this.cursorRow += 1;
-      this.ensureCursorRow();
+      this.lineFeed();
     }
   }
 
@@ -555,9 +623,8 @@ export class VtScreen {
         this.lines.push(this.makeLine(this.cols));
       }
       while (this.cursorRow >= this.rows) {
-        this.lines.shift();
-        this.lines.push(this.makeLine(this.cols));
-        this.cursorRow -= 1;
+        this.cursorRow = this.rows - 1;
+        this.scrollRegionUp(this.scrollTop, this.scrollBottom, 1);
       }
       this.cursorRow = Math.max(0, this.cursorRow);
       return;
@@ -607,6 +674,8 @@ export class VtScreen {
       cursorCol: this.cursorCol,
       savedRow: this.savedRow,
       savedCol: this.savedCol,
+      scrollTop: this.scrollTop,
+      scrollBottom: this.scrollBottom,
     };
     this.usingAltScreen = true;
     this.lines = [];
@@ -615,6 +684,8 @@ export class VtScreen {
     this.cursorCol = 0;
     this.savedRow = 0;
     this.savedCol = 0;
+    this.scrollTop = 0;
+    this.scrollBottom = this.rows - 1;
   }
 
   private leaveAltScreen(): void {
@@ -626,6 +697,8 @@ export class VtScreen {
       this.cursorCol = 0;
       this.savedRow = 0;
       this.savedCol = 0;
+      this.scrollTop = 0;
+      this.scrollBottom = this.rows - 1;
       return;
     }
     this.lines = cloneLines(this.savedPrimaryScreen.lines);
@@ -633,7 +706,78 @@ export class VtScreen {
     this.cursorCol = this.savedPrimaryScreen.cursorCol;
     this.savedRow = this.savedPrimaryScreen.savedRow;
     this.savedCol = this.savedPrimaryScreen.savedCol;
+    this.scrollTop = this.savedPrimaryScreen.scrollTop;
+    this.scrollBottom = this.savedPrimaryScreen.scrollBottom;
     this.savedPrimaryScreen = undefined;
+  }
+
+  private lineFeed(): void {
+    this.ensureCursorRow();
+    const top = this.absoluteRowFromViewport(this.scrollTop);
+    const bottom = this.absoluteRowFromViewport(this.scrollBottom);
+
+    if (this.cursorRow >= top && this.cursorRow <= bottom) {
+      if (this.cursorRow === bottom) {
+        this.scrollRegionUp(this.scrollTop, this.scrollBottom, 1);
+      } else {
+        this.cursorRow += 1;
+      }
+      return;
+    }
+
+    this.cursorRow += 1;
+    this.ensureCursorRow();
+  }
+
+  private reverseIndex(): void {
+    this.ensureCursorRow();
+    const top = this.absoluteRowFromViewport(this.scrollTop);
+    const bottom = this.absoluteRowFromViewport(this.scrollBottom);
+
+    if (this.cursorRow >= top && this.cursorRow <= bottom) {
+      if (this.cursorRow === top) {
+        this.scrollRegionDown(this.scrollTop, this.scrollBottom, 1);
+      } else {
+        this.cursorRow -= 1;
+      }
+      return;
+    }
+
+    this.cursorRow = Math.max(0, this.cursorRow - 1);
+  }
+
+  private cursorWithinScrollRegion(): boolean {
+    const top = this.absoluteRowFromViewport(this.scrollTop);
+    const bottom = this.absoluteRowFromViewport(this.scrollBottom);
+    return this.cursorRow >= top && this.cursorRow <= bottom;
+  }
+
+  private scrollRegionUp(topLocal: number, bottomLocal: number, count: number): void {
+    const top = this.absoluteRowFromViewport(topLocal);
+    const bottom = this.absoluteRowFromViewport(bottomLocal);
+    const n = Math.max(1, Math.min(bottom - top + 1, count));
+
+    for (let i = 0; i < n; i += 1) {
+      this.lines.splice(top, 1);
+      this.lines.splice(bottom, 0, this.makeLine(this.cols));
+    }
+  }
+
+  private scrollRegionDown(topLocal: number, bottomLocal: number, count: number): void {
+    const top = this.absoluteRowFromViewport(topLocal);
+    const bottom = this.absoluteRowFromViewport(bottomLocal);
+    const n = Math.max(1, Math.min(bottom - top + 1, count));
+
+    for (let i = 0; i < n; i += 1) {
+      this.lines.splice(bottom, 1);
+      this.lines.splice(top, 0, this.makeLine(this.cols));
+    }
+  }
+
+  private absoluteRowFromViewport(localRow: number): number {
+    if (this.usingAltScreen) return localRow;
+    const base = Math.max(0, this.lines.length - this.rows);
+    return base + localRow;
   }
 }
 

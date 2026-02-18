@@ -46,6 +46,8 @@ type RuntimeWindowRecord = RuntimeWindowSnapshot & {
   pty?: ReturnType<NodePtyModule['spawn']>;
   buffer: string;
   screen: VtScreen;
+  queryCarry: string;
+  privateModes: Map<number, boolean>;
 };
 
 type RuntimeSessionRecord = {
@@ -116,6 +118,8 @@ export class PtyRuntime implements AgentRuntime {
     record.signal = undefined;
     record.process = undefined;
     record.pty = undefined;
+    record.queryCarry = '';
+    record.privateModes = new Map<number, boolean>();
     const initialCols = parseInt(env.COLUMNS || '140', 10);
     const initialRows = parseInt(env.LINES || '40', 10);
     record.screen.resize(initialCols, initialRows);
@@ -138,7 +142,7 @@ export class PtyRuntime implements AgentRuntime {
         pty.onData((data: string) => {
           this.appendBuffer(record, data);
           record.screen.write(data);
-          const response = this.buildTerminalResponse(data, parseInt(env.COLUMNS || '140', 10), parseInt(env.LINES || '40', 10));
+          const response = this.buildTerminalResponse(record, data);
           if (response.length > 0) {
             pty.write(response);
           }
@@ -355,6 +359,8 @@ export class PtyRuntime implements AgentRuntime {
       status: 'idle',
       buffer: '',
       screen: new VtScreen(),
+      queryCarry: '',
+      privateModes: new Map<number, boolean>(),
     };
     this.windows.set(key, created);
     return created;
@@ -379,55 +385,150 @@ export class PtyRuntime implements AgentRuntime {
     }
   }
 
-  private buildTerminalResponse(chunk: string, cols: number, rows: number): string {
+  private buildTerminalResponse(record: RuntimeWindowRecord, chunk: string): string {
+    const dims = record.screen.getDimensions();
+    const data = `${record.queryCarry}${chunk}`;
+    record.queryCarry = '';
+
     let out = '';
+    let i = 0;
 
-    const sixNCount = this.countMatches(chunk, /\x1b\[6n/g);
-    for (let i = 0; i < sixNCount; i += 1) {
-      out += '\x1b[1;1R';
-    }
+    while (i < data.length) {
+      const ch = data[i];
+      if (ch !== '\x1b') {
+        i += 1;
+        continue;
+      }
 
-    const privateQuery = /\x1b\[\?(\d+)\$p/g;
-    let privateMatch = privateQuery.exec(chunk);
-    while (privateMatch) {
-      out += `\x1b[?${privateMatch[1]};1$y`;
-      privateMatch = privateQuery.exec(chunk);
-    }
+      const next = data[i + 1];
+      if (!next) {
+        record.queryCarry = data.slice(i);
+        break;
+      }
 
-    if (chunk.includes('\x1b[?u')) {
-      out += '\x1b[?0u';
-    }
+      if (next === '[') {
+        let j = i + 2;
+        while (j < data.length && (data.charCodeAt(j) < 0x40 || data.charCodeAt(j) > 0x7e)) j += 1;
+        if (j >= data.length) {
+          record.queryCarry = data.slice(i);
+          break;
+        }
 
-    const winSizeCount = this.countMatches(chunk, /\x1b\[14t/g);
-    for (let i = 0; i < winSizeCount; i += 1) {
-      const widthPx = Math.max(320, cols * 11);
-      const heightPx = Math.max(200, rows * 22);
-      out += `\x1b[4;${heightPx};${widthPx}t`;
-    }
+        const final = data[j];
+        const raw = data.slice(i + 2, j);
 
-    const daCount = this.countMatches(chunk, /\x1b\[c/g);
-    for (let i = 0; i < daCount; i += 1) {
-      out += '\x1b[?62;c';
-    }
+        if (final === 'n' && raw === '6') {
+          const cursor = record.screen.getCursorPosition();
+          out += `\x1b[${cursor.row + 1};${cursor.col + 1}R`;
+        }
 
-    if (chunk.includes('\x1b]11;?\x07')) {
-      out += '\x1b]11;rgb:0a0a/0a0a/0a0a\x07';
-    }
+        if (final === 'p' && raw.startsWith('?') && raw.endsWith('$')) {
+          const mode = parseInt(raw.slice(1, -1), 10);
+          if (Number.isFinite(mode)) {
+            const state = this.privateModeState(record, mode);
+            out += `\x1b[?${mode};${state}$y`;
+          }
+        }
 
-    if (chunk.includes('\x1b]4;0;?\x07')) {
-      out += '\x1b]4;0;rgb:0a0a/0a0a/0a0a\x07';
-    }
+        if ((final === 'h' || final === 'l') && raw.startsWith('?')) {
+          const enable = final === 'h';
+          const params = raw.slice(1).split(';');
+          for (const value of params) {
+            const mode = parseInt(value, 10);
+            if (Number.isFinite(mode)) {
+              record.privateModes.set(mode, enable);
+            }
+          }
+        }
 
-    if (chunk.includes('\x1b_G') && chunk.includes('a=q')) {
-      out += '\x1b_Gi=31337;OK\x1b\\';
+        if (final === 'u' && raw === '?') {
+          out += '\x1b[?0u';
+        }
+
+        if (final === 't' && raw === '14') {
+          const widthPx = Math.max(320, dims.cols * 11);
+          const heightPx = Math.max(200, dims.rows * 22);
+          out += `\x1b[4;${heightPx};${widthPx}t`;
+        }
+
+        if (final === 'c' && raw.length === 0) {
+          out += '\x1b[?62;c';
+        }
+
+        i = j + 1;
+        continue;
+      }
+
+      if (next === ']') {
+        let j = i + 2;
+        let terminated = false;
+        let endIndex = -1;
+        while (j < data.length) {
+          if (data[j] === '\x07') {
+            endIndex = j;
+            j += 1;
+            terminated = true;
+            break;
+          }
+          if (data[j] === '\x1b' && data[j + 1] === '\\') {
+            endIndex = j;
+            j += 2;
+            terminated = true;
+            break;
+          }
+          j += 1;
+        }
+        if (!terminated) {
+          record.queryCarry = data.slice(i);
+          break;
+        }
+
+        const body = data.slice(i + 2, endIndex >= 0 ? endIndex : j);
+        if (body === '11;?') {
+          out += '\x1b]11;rgb:0a0a/0a0a/0a0a\x07';
+        }
+        if (body === '4;0;?') {
+          out += '\x1b]4;0;rgb:0a0a/0a0a/0a0a\x07';
+        }
+
+        i = j;
+        continue;
+      }
+
+      if (next === '_') {
+        let j = i + 2;
+        let terminated = false;
+        while (j < data.length) {
+          if (data[j] === '\x1b' && data[j + 1] === '\\') {
+            j += 2;
+            terminated = true;
+            break;
+          }
+          j += 1;
+        }
+        if (!terminated) {
+          record.queryCarry = data.slice(i);
+          break;
+        }
+
+        const body = data.slice(i + 2, j - 2);
+        if (body.includes('a=q')) {
+          out += '\x1b_Gi=31337;OK\x1b\\';
+        }
+
+        i = j;
+        continue;
+      }
+
+      i += 2;
     }
 
     return out;
   }
 
-  private countMatches(value: string, pattern: RegExp): number {
-    const matches = value.match(pattern);
-    return matches ? matches.length : 0;
+  private privateModeState(record: RuntimeWindowRecord, mode: number): number {
+    const value = record.privateModes.get(mode);
+    return value ? 1 : 2;
   }
 
   private windowKey(sessionName: string, windowName: string): string {

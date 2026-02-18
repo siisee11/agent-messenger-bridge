@@ -743,7 +743,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
                           {(segment) => (
                             <text
                               fg={segment.fg || palette.text}
-                              bg={segment.bg}
+                              bg={segment.bg || palette.panel}
                               attributes={toTextAttributes(segment)}
                             >{segment.text.length > 0 ? segment.text : ' '}</text>
                           )}
