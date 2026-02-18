@@ -583,5 +583,39 @@ describe('BridgeHookServer', () => {
       expect(res.status).toBe(200);
       expect(runtime.stopWindow).toHaveBeenCalledWith('bridge', 'project-claude');
     });
+
+    it('ensures runtime window via POST /runtime/ensure', async () => {
+      const runtime = createMockRuntime();
+      runtime.windowExists = vi.fn().mockReturnValue(false);
+
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          createdAt: new Date().toISOString(),
+          lastActive: new Date().toISOString(),
+          instances: {
+            opencode: {
+              instanceId: 'opencode',
+              agentType: 'opencode',
+              tmuxWindow: 'test-opencode',
+              channelId: 'C123',
+            },
+          },
+        },
+      });
+
+      startServer({ runtime: runtime as any, stateManager: stateManager as any });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/runtime/ensure', { projectName: 'test', instanceId: 'opencode' });
+      expect(res.status).toBe(200);
+      expect(runtime.startAgentInWindow).toHaveBeenCalledWith(
+        'bridge',
+        'test-opencode',
+        expect.stringContaining('opencode'),
+      );
+    });
   });
 });

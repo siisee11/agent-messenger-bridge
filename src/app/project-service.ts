@@ -51,6 +51,40 @@ export async function setupProjectInstance(params: {
       // daemon will pick up on next restart
     }
 
+    if ((params.config.runtimeMode || 'tmux') === 'pty') {
+      try {
+        await new Promise<void>((resolveDone) => {
+          const payload = JSON.stringify({
+            projectName: params.projectName,
+            instanceId: params.instanceId,
+            permissionAllow: params.config.opencode?.permissionMode === 'allow',
+          });
+          const req = httpRequest(
+            {
+              hostname: '127.0.0.1',
+              port: params.port,
+              path: '/runtime/ensure',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload),
+              },
+            },
+            () => resolveDone(),
+          );
+          req.on('error', () => resolveDone());
+          req.setTimeout(2000, () => {
+            req.destroy();
+            resolveDone();
+          });
+          req.write(payload);
+          req.end();
+        });
+      } catch {
+        // non-critical; attach fallback remains available
+      }
+    }
+
     return {
       createdNewProject: !existingProject,
       channelName: result.channelName,

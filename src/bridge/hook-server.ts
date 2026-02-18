@@ -7,9 +7,13 @@ import type { MessagingClient } from '../messaging/interface.js';
 import type { IStateManager } from '../types/interfaces.js';
 import type { AgentRuntime } from '../runtime/interface.js';
 import { RuntimeControlPlane } from '../runtime/control-plane.js';
+import { agentRegistry } from '../agents/index.js';
+import { installAgentIntegration } from '../policy/agent-integration.js';
+import { buildAgentLaunchEnv, buildExportPrefix, withClaudePluginDir } from '../policy/agent-launch.js';
 import {
   getPrimaryInstanceForAgent,
   getProjectInstance,
+  listProjectInstances,
   normalizeProjectState,
 } from '../state/instances.js';
 import { PendingMessageTracker } from './pending-message-tracker.js';
@@ -123,6 +127,22 @@ export class BridgeHookServer {
               }
 
               const result = this.handleRuntimeStop(payload);
+              res.writeHead(result.status);
+              res.end(result.message);
+              return;
+            }
+
+            if (pathname === '/runtime/ensure') {
+              let payload: unknown;
+              try {
+                payload = body ? JSON.parse(body) : {};
+              } catch {
+                res.writeHead(400);
+                res.end('Invalid JSON');
+                return;
+              }
+
+              const result = this.handleRuntimeEnsure(payload);
               res.writeHead(result.status);
               res.end(result.message);
               return;
@@ -319,6 +339,68 @@ export class BridgeHookServer {
       }
       return { status: 400, message };
     }
+  }
+
+  private handleRuntimeEnsure(payload: unknown): { status: number; message: string } {
+    if (!this.deps.runtime) {
+      return { status: 501, message: 'Runtime control unavailable' };
+    }
+    if (!payload || typeof payload !== 'object') {
+      return { status: 400, message: 'Invalid payload' };
+    }
+
+    const input = payload as Record<string, unknown>;
+    const projectName = typeof input.projectName === 'string' ? input.projectName : undefined;
+    const instanceId = typeof input.instanceId === 'string' ? input.instanceId : undefined;
+    const permissionAllow = input.permissionAllow === true;
+    if (!projectName) {
+      return { status: 400, message: 'Missing projectName' };
+    }
+
+    const existingProject = this.deps.stateManager.getProject(projectName);
+    if (!existingProject) {
+      return { status: 404, message: 'Project not found' };
+    }
+
+    const project = normalizeProjectState(existingProject);
+    const instance = instanceId
+      ? getProjectInstance(project, instanceId)
+      : listProjectInstances(project)[0];
+    if (!instance) {
+      return { status: 404, message: 'Instance not found' };
+    }
+
+    const adapter = agentRegistry.get(instance.agentType);
+    if (!adapter) {
+      return { status: 404, message: 'Agent adapter not found' };
+    }
+
+    const windowName = instance.tmuxWindow;
+    const sessionName = project.tmuxSession;
+    if (!windowName || !sessionName) {
+      return { status: 400, message: 'Invalid project state' };
+    }
+
+    this.deps.runtime.setSessionEnv(sessionName, 'AGENT_DISCORD_PORT', String(this.deps.port));
+    if (this.deps.runtime.windowExists(sessionName, windowName)) {
+      return { status: 200, message: 'OK' };
+    }
+
+    const integration = installAgentIntegration(instance.agentType, project.projectPath, 'reinstall');
+    const startCommand = withClaudePluginDir(
+      adapter.getStartCommand(project.projectPath, permissionAllow),
+      integration.claudePluginDir,
+    );
+    const envPrefix = buildExportPrefix(buildAgentLaunchEnv({
+      projectName,
+      port: this.deps.port,
+      agentType: instance.agentType,
+      instanceId: instance.instanceId,
+      permissionAllow,
+    }));
+
+    this.deps.runtime.startAgentInWindow(sessionName, windowName, `${envPrefix}${startCommand}`);
+    return { status: 200, message: 'OK' };
   }
 
   /**
