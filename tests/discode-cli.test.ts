@@ -206,7 +206,7 @@ describe('CLI flow safety (stage 1)', () => {
       { claude: true },
       undefined,
       18470,
-      { instanceId: 'claude' },
+      { instanceId: 'claude', skipRuntimeStart: false },
     );
     expect(bridge.stop).toHaveBeenCalledOnce();
   });

@@ -34,7 +34,10 @@ export async function setupProjectInstance(params: {
       { [params.agentName]: true },
       undefined,
       params.port,
-      { instanceId: params.instanceId },
+      {
+        instanceId: params.instanceId,
+        skipRuntimeStart: (params.config.runtimeMode || 'tmux') === 'pty',
+      },
     );
 
     try {
@@ -53,33 +56,49 @@ export async function setupProjectInstance(params: {
 
     if ((params.config.runtimeMode || 'tmux') === 'pty') {
       try {
-        await new Promise<void>((resolveDone) => {
-          const payload = JSON.stringify({
-            projectName: params.projectName,
-            instanceId: params.instanceId,
-            permissionAllow: params.config.opencode?.permissionMode === 'allow',
-          });
-          const req = httpRequest(
-            {
-              hostname: '127.0.0.1',
-              port: params.port,
-              path: '/runtime/ensure',
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(payload),
+        const ensureOnce = async () => {
+          return await new Promise<number>((resolveDone) => {
+            const payload = JSON.stringify({
+              projectName: params.projectName,
+              instanceId: params.instanceId,
+              permissionAllow: params.config.opencode?.permissionMode === 'allow',
+            });
+            const req = httpRequest(
+              {
+                hostname: '127.0.0.1',
+                port: params.port,
+                path: '/runtime/ensure',
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(payload),
+                },
               },
-            },
-            () => resolveDone(),
-          );
-          req.on('error', () => resolveDone());
-          req.setTimeout(2000, () => {
-            req.destroy();
-            resolveDone();
+              (res) => resolveDone(res.statusCode || 0),
+            );
+            req.on('error', () => resolveDone(0));
+            req.setTimeout(2000, () => {
+              req.destroy();
+              resolveDone(0);
+            });
+            req.write(payload);
+            req.end();
           });
-          req.write(payload);
-          req.end();
-        });
+        };
+
+        let ensured = false;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          const status = await ensureOnce();
+          if (status >= 200 && status < 300) {
+            ensured = true;
+            break;
+          }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+        }
+
+        if (!ensured) {
+          console.warn(`⚠️ Could not ensure runtime window for ${params.projectName}#${params.instanceId}`);
+        }
       } catch {
         // non-critical; attach fallback remains available
       }

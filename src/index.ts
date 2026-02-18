@@ -140,7 +140,7 @@ export class AgentBridge {
     agents: ProjectAgents,
     channelDisplayName?: string,
     overridePort?: number,
-    options?: { instanceId?: string },
+    options?: { instanceId?: string; skipRuntimeStart?: boolean },
   ): Promise<{ channelName: string; channelId: string; agentName: string; tmuxSession: string }> {
     const isSlack = this.bridgeConfig.messagingPlatform === 'slack';
     const guildId = isSlack ? this.stateManager.getWorkspaceId() : this.stateManager.getGuildId();
@@ -218,11 +218,13 @@ export class AgentBridge {
     }));
     const startCommand = withClaudePluginDir(adapter.getStartCommand(projectPath, permissionAllow), integration.claudePluginDir);
 
-    this.runtime.startAgentInWindow(
-      tmuxSession,
-      windowName,
-      `${exportPrefix}${startCommand}`
-    );
+    if (!options?.skipRuntimeStart) {
+      this.runtime.startAgentInWindow(
+        tmuxSession,
+        windowName,
+        `${exportPrefix}${startCommand}`
+      );
+    }
 
     // Save state
     const baseProject = normalizedExisting || {
