@@ -34,6 +34,8 @@ function resolveTuiVersion(): string {
 
 const TUI_VERSION = resolveTuiVersion();
 const TUI_VERSION_LABEL = TUI_VERSION.startsWith('v') ? TUI_VERSION : `v${TUI_VERSION}`;
+const PREFIX_KEY_NAME = 'b';
+const PREFIX_LABEL = 'Ctrl+b';
 
 type TuiInput = {
   currentSession?: string;
@@ -233,6 +235,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [windowStyledLines, setWindowStyledLines] = createSignal<TerminalStyledLine[] | undefined>(undefined);
   const [windowCursor, setWindowCursor] = createSignal<TerminalCursor | undefined>(undefined);
   const [cursorBlinkOn, setCursorBlinkOn] = createSignal(true);
+  const [prefixPending, setPrefixPending] = createSignal(false);
   const [runtimeInputMode, setRuntimeInputMode] = createSignal(true);
   const [runtimeStatusLine, setRuntimeStatusLine] = createSignal('transport: stream');
   const [composerReady, setComposerReady] = createSignal(false);
@@ -608,8 +611,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     await focusProject(selectedSession.attachProject);
   };
 
-  const resolveCtrlNumberIndex = (evt: { ctrl?: boolean; name?: string }): number | null => {
-    if (!evt.ctrl) return null;
+  const resolvePrefixedNumberIndex = (evt: { name?: string }): number | null => {
     if (!evt.name || !/^[1-9]$/.test(evt.name)) return null;
     const index = parseInt(evt.name, 10) - 1;
     if (!Number.isFinite(index) || index < 0) return null;
@@ -743,14 +745,14 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     if (name === 'pageup') return '\x1b[5~';
     if (name === 'pagedown') return '\x1b[6~';
 
+    const sequence = evt.sequence || '';
+    if (!evt.meta && sequence.length > 0) {
+      return sequence;
+    }
+
     if (evt.ctrl && name.length === 1 && /^[a-z]$/i.test(name)) {
       const code = name.toLowerCase().charCodeAt(0) - 96;
       if (code >= 1 && code <= 26) return String.fromCharCode(code);
-    }
-
-    const sequence = evt.sequence || '';
-    if (!evt.ctrl && !evt.meta && sequence.length > 0) {
-      return sequence;
     }
 
     return null;
@@ -765,26 +767,90 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   };
 
   useKeyboard((evt) => {
-    if (evt.ctrl && evt.name === 'g') {
+    if (prefixPending()) {
       evt.preventDefault();
-      setRuntimeInputMode(!runtimeInputMode());
-      return;
-    }
+      setPrefixPending(false);
 
-    const ctrlNumberIndex = resolveCtrlNumberIndex(evt);
-    if (ctrlNumberIndex !== null) {
-      if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !configOpen()) {
-        evt.preventDefault();
-        void quickSwitchToIndex(ctrlNumberIndex);
+      if (evt.name === 'g') {
+        setRuntimeInputMode(!runtimeInputMode());
+        return;
       }
-      return;
-    }
 
-    if (evt.ctrl && evt.name === 'p') {
-      evt.preventDefault();
-      if (!paletteOpen()) {
+      if (evt.name === 'c') {
+        renderer.destroy();
+        props.close();
+        return;
+      }
+
+      const prefixedNumberIndex = resolvePrefixedNumberIndex(evt);
+      if (prefixedNumberIndex !== null) {
+        if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !configOpen()) {
+          void quickSwitchToIndex(prefixedNumberIndex);
+        }
+        return;
+      }
+
+      if (evt.name === 'p') {
+        if (paletteOpen()) {
+          clampPaletteSelection(-1);
+          return;
+        }
+        if (stopOpen()) {
+          clampStopSelection(-1);
+          return;
+        }
+        if (newOpen()) {
+          clampNewSelection(-1);
+          return;
+        }
+        if (listOpen()) {
+          clampListSelection(-1);
+          return;
+        }
+        if (configOpen()) {
+          clampConfigSelection(-1);
+          return;
+        }
         openCommandPalette();
+        return;
       }
+
+      if (evt.name === 'n') {
+        if (paletteOpen()) {
+          clampPaletteSelection(1);
+          return;
+        }
+        if (stopOpen()) {
+          clampStopSelection(1);
+          return;
+        }
+        if (newOpen()) {
+          clampNewSelection(1);
+          return;
+        }
+        if (listOpen()) {
+          clampListSelection(1);
+          return;
+        }
+        if (configOpen()) {
+          clampConfigSelection(1);
+          return;
+        }
+      }
+
+      if (evt.name === PREFIX_KEY_NAME && canHandleRuntimeInput()) {
+        const session = currentSession();
+        const window = currentWindow();
+        if (session && window && props.input.onRuntimeKey) {
+          void props.input.onRuntimeKey(session, window, String.fromCharCode(2));
+        }
+      }
+      return;
+    }
+
+    if (evt.ctrl && evt.name === PREFIX_KEY_NAME) {
+      evt.preventDefault();
+      setPrefixPending(true);
       return;
     }
 
@@ -794,12 +860,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         closeCommandPalette();
         return;
       }
-      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+      if (evt.name === 'up') {
         evt.preventDefault();
         clampPaletteSelection(-1);
         return;
       }
-      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+      if (evt.name === 'down') {
         evt.preventDefault();
         clampPaletteSelection(1);
         return;
@@ -841,12 +907,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         closeStopDialog();
         return;
       }
-      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+      if (evt.name === 'up') {
         evt.preventDefault();
         clampStopSelection(-1);
         return;
       }
-      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+      if (evt.name === 'down') {
         evt.preventDefault();
         clampStopSelection(1);
         return;
@@ -864,12 +930,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         closeNewDialog();
         return;
       }
-      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+      if (evt.name === 'up') {
         evt.preventDefault();
         clampNewSelection(-1);
         return;
       }
-      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+      if (evt.name === 'down') {
         evt.preventDefault();
         clampNewSelection(1);
         return;
@@ -887,12 +953,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         closeListDialog();
         return;
       }
-      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+      if (evt.name === 'up') {
         evt.preventDefault();
         clampListSelection(-1);
         return;
       }
-      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+      if (evt.name === 'down') {
         evt.preventDefault();
         clampListSelection(1);
         return;
@@ -910,12 +976,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
         closeConfigDialog();
         return;
       }
-      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+      if (evt.name === 'up') {
         evt.preventDefault();
         clampConfigSelection(-1);
         return;
       }
-      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+      if (evt.name === 'down') {
         evt.preventDefault();
         clampConfigSelection(1);
         return;
@@ -932,13 +998,6 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       textarea?.setText('');
       setValue('');
       setRuntimeInputMode(true);
-      return;
-    }
-
-    if (evt.ctrl && evt.name === 'c') {
-      evt.preventDefault();
-      renderer.destroy();
-      props.close();
       return;
     }
 
@@ -1118,10 +1177,11 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
           </box>
           <text fg={runtimeInputMode() ? palette.primary : palette.muted}>{runtimeInputMode() ? 'mode: runtime input' : 'mode: command input'}</text>
           <text fg={palette.muted}>{runtimeStatusLine()}</text>
-          <text fg={palette.muted}>toggle: Ctrl+g</text>
-          <text fg={palette.muted}>runtime: slash passes to AI</text>
-          <text fg={palette.muted}>window: Ctrl+1..9</text>
-          <text fg={palette.muted}>commands: Ctrl+g, then / + Enter</text>
+          <text fg={prefixPending() ? palette.primary : palette.muted}>{`prefix: ${PREFIX_LABEL}${prefixPending() ? ' (waiting key)' : ''}`}</text>
+          <text fg={palette.muted}>toggle: prefix + g</text>
+          <text fg={palette.muted}>runtime: slash/ctrl pass to AI</text>
+          <text fg={palette.muted}>window: prefix + 1..9</text>
+          <text fg={palette.muted}>commands: prefix + g, then / + Enter</text>
 
           <box flexDirection="column" marginTop={1}>
             <text fg={palette.primary} attributes={TextAttributes.BOLD}>Current Sessions</text>
@@ -1136,7 +1196,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
             <text fg={palette.primary} attributes={TextAttributes.BOLD}>Quick Switch</text>
             <Show when={quickSwitchWindows().length > 0} fallback={<text fg={palette.muted}>No mapped windows</text>}>
               <For each={quickSwitchWindows()}>
-                {(item, index) => <text fg={palette.muted}>{`Ctrl+${index() + 1} ${item.project}`}</text>}
+                {(item, index) => <text fg={palette.muted}>{`prefix+${index() + 1} ${item.project}`}</text>}
               </For>
             </Show>
           </box>
@@ -1196,7 +1256,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
                 maxHeight={4}
                 onSubmit={submit}
                 keyBindings={[{ name: 'return', action: 'submit' }]}
-                placeholder={runtimeInputMode() ? 'Press Ctrl+g to enter command mode' : 'Type a command'}
+                placeholder={runtimeInputMode() ? `Press ${PREFIX_LABEL} then g to enter command mode` : 'Type a command'}
                 textColor={palette.text}
                 focusedTextColor={palette.text}
                 cursorColor={palette.primary}
