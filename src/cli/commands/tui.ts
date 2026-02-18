@@ -673,7 +673,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     if (!raw || runtimeSupported === false) return;
     const windowId = `${sessionName}:${windowName}`;
     if (runtimeStreamConnected) {
-      streamClient.input(windowId, Buffer.from(raw, 'latin1'));
+      streamClient.input(windowId, Buffer.from(raw, 'utf8'));
       setTransportStatus({
         mode: 'stream',
         connected: true,
@@ -722,7 +722,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     }
 
     if (command === '/help') {
-      append('Commands: /new [name] [agent] [--instance id] [--attach], /list, /projects, /config [keepChannel [on|off|toggle] | defaultAgent [agent|auto] | defaultChannel [channelId|auto]], /help, /exit');
+      append('Commands: /new [name] [agent] [--instance id] [--attach], /list, /projects, /config [keepChannel [on|off|toggle] | defaultAgent [agent|auto] | defaultChannel [channelId|auto] | runtimeMode [tmux|pty|toggle]], /help, /exit');
       return false;
     }
 
@@ -730,9 +730,11 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       append(`keepChannel: ${keepChannelOnStop ? 'on' : 'off'}`);
       append(`defaultAgent: ${config.defaultAgentCli || '(auto)'}`);
       append(`defaultChannel: ${config.discord.channelId || '(auto)'}`);
+      append(`runtimeMode: ${config.runtimeMode || 'tmux'}`);
       append('Usage: /config keepChannel [on|off|toggle]');
       append('Usage: /config defaultAgent [agent|auto]');
       append('Usage: /config defaultChannel [channelId|auto]');
+      append('Usage: /config runtimeMode [tmux|pty|toggle]');
       return false;
     }
 
@@ -805,9 +807,39 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         return false;
       }
 
+      if (key === 'runtimemode' || key === 'runtime-mode' || key === 'runtime') {
+        const currentMode = config.runtimeMode === 'pty' ? 'pty' : 'tmux';
+        const value = (parts[2] || '').trim().toLowerCase();
+
+        if (!value) {
+          append(`runtimeMode: ${currentMode}`);
+          append('Use: /config runtimeMode [tmux|pty|toggle]');
+          return false;
+        }
+
+        let nextMode: 'tmux' | 'pty';
+        if (value === 'toggle') {
+          nextMode = currentMode === 'pty' ? 'tmux' : 'pty';
+        } else if (value === 'tmux' || value === 'pty') {
+          nextMode = value;
+        } else {
+          append(`⚠️ Unknown runtime mode: ${parts[2]}`);
+          append('Use tmux, pty, or toggle');
+          return false;
+        }
+
+        try {
+          saveConfig({ runtimeMode: nextMode });
+          append(`✅ runtimeMode is now ${nextMode}`);
+        } catch (error) {
+          append(`⚠️ Failed to persist config: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return false;
+      }
+
       if (key !== 'keepchannel' && key !== 'keep-channel') {
         append(`⚠️ Unknown config key: ${parts[1] || '(empty)'}`);
-        append('Supported keys: keepChannel, defaultAgent, defaultChannel');
+        append('Supported keys: keepChannel, defaultAgent, defaultChannel, runtimeMode');
         return false;
       }
 
@@ -975,7 +1007,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       const focusedWindowId = runtimeWindowsCache?.activeWindowId;
       if (focusedWindowId) {
         if (runtimeStreamConnected) {
-          streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'latin1'));
+          streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'utf8'));
           setTransportStatus({
             mode: 'stream',
             connected: true,

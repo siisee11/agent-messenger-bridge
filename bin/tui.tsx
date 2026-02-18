@@ -95,7 +95,7 @@ const slashCommands = [
   { command: '/list', description: 'show current session list' },
   { command: '/stop', description: 'select and stop a project' },
   { command: '/projects', description: 'list configured projects' },
-  { command: '/config', description: 'manage keepChannel/defaultAgent' },
+  { command: '/config', description: 'manage keepChannel/defaultAgent/defaultChannel/runtimeMode' },
   { command: '/help', description: 'show available commands' },
   { command: '/exit', description: 'close the TUI' },
   { command: '/quit', description: 'close the TUI' },
@@ -106,7 +106,7 @@ const paletteCommands = [
   { command: '/list', description: 'Show current session list' },
   { command: '/stop', description: 'Select and stop a project' },
   { command: '/projects', description: 'List configured projects' },
-  { command: '/config', description: 'Manage keepChannel/defaultAgent' },
+  { command: '/config', description: 'Manage keepChannel/defaultAgent/defaultChannel/runtimeMode' },
   { command: '/help', description: 'Show help' },
   { command: '/exit', description: 'Exit TUI' },
   { command: '/quit', description: 'Exit TUI' },
@@ -124,6 +124,15 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [newSelected, setNewSelected] = createSignal(0);
   const [listOpen, setListOpen] = createSignal(false);
   const [listSelected, setListSelected] = createSignal(0);
+  const [configOpen, setConfigOpen] = createSignal(false);
+  const [configSelected, setConfigSelected] = createSignal(0);
+  const [configKeepChannel, setConfigKeepChannel] = createSignal<'on' | 'off'>('off');
+  const [configRuntimeMode, setConfigRuntimeMode] = createSignal<'tmux' | 'pty'>('tmux');
+  const [configDefaultAgent, setConfigDefaultAgent] = createSignal('(auto)');
+  const [configDefaultChannel, setConfigDefaultChannel] = createSignal('(auto)');
+  const [configAgentOptions, setConfigAgentOptions] = createSignal<string[]>([]);
+  const [configMessage, setConfigMessage] = createSignal('Select an option');
+  const [configLoading, setConfigLoading] = createSignal(false);
   const [stopOpen, setStopOpen] = createSignal(false);
   const [stopSelected, setStopSelected] = createSignal(0);
   const [currentSession, setCurrentSession] = createSignal(props.input.currentSession);
@@ -243,6 +252,148 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     textarea.gotoBufferEnd();
   };
 
+  const parseValueLine = (lines: string[], key: string): string | undefined => {
+    const prefix = `${key.toLowerCase()}:`;
+    const line = lines.find((entry) => entry.toLowerCase().startsWith(prefix));
+    if (!line) return undefined;
+    const idx = line.indexOf(':');
+    if (idx < 0) return undefined;
+    return line.slice(idx + 1).trim();
+  };
+
+  const runCommandCapture = async (command: string): Promise<string[]> => {
+    const lines: string[] = [];
+    await props.input.onCommand(command, (line) => {
+      lines.push(line);
+    });
+    return lines;
+  };
+
+  const refreshConfigDialog = async () => {
+    setConfigLoading(true);
+    try {
+      const summaryLines = await runCommandCapture('/config');
+      const keep = parseValueLine(summaryLines, 'keepChannel');
+      if (keep === 'on' || keep === 'off') {
+        setConfigKeepChannel(keep);
+      }
+
+      const defaultAgent = parseValueLine(summaryLines, 'defaultAgent');
+      if (defaultAgent) {
+        setConfigDefaultAgent(defaultAgent);
+      }
+
+      const defaultChannel = parseValueLine(summaryLines, 'defaultChannel');
+      if (defaultChannel) {
+        setConfigDefaultChannel(defaultChannel);
+      }
+
+      const runtimeMode = parseValueLine(summaryLines, 'runtimeMode');
+      if (runtimeMode === 'tmux' || runtimeMode === 'pty') {
+        setConfigRuntimeMode(runtimeMode);
+      }
+
+      const agentLines = await runCommandCapture('/config defaultAgent');
+      const availableLine = agentLines.find((line) => line.startsWith('Available:'));
+      if (availableLine) {
+        const parsed = availableLine
+          .slice('Available:'.length)
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+        setConfigAgentOptions(parsed);
+      } else {
+        setConfigAgentOptions([]);
+      }
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const closeConfigDialog = () => {
+    setConfigOpen(false);
+    setConfigSelected(0);
+    setTimeout(() => {
+      if (!textarea || textarea.isDestroyed) return;
+      textarea.focus();
+    }, 1);
+  };
+
+  const openConfigDialog = () => {
+    setConfigOpen(true);
+    setConfigSelected(0);
+    setConfigMessage('Loading...');
+    textarea?.blur();
+    void refreshConfigDialog();
+  };
+
+  const selectedDefaultAgent = createMemo(() => {
+    const next = configDefaultAgent().trim();
+    if (!next || next === '(auto)') return 'auto';
+    return next;
+  });
+
+  const configItems = createMemo<Array<{ command: string; label: string }>>(() => {
+    const items: Array<{ command: string; label: string }> = [
+      {
+        command: '/config keepChannel toggle',
+        label: `keepChannel: ${configKeepChannel()} (toggle)`,
+      },
+      {
+        command: '/config runtimeMode toggle',
+        label: `runtimeMode: ${configRuntimeMode()} (toggle)`,
+      },
+    ];
+
+    items.push({
+      command: '/config runtimeMode tmux',
+      label: `runtimeMode -> tmux${configRuntimeMode() === 'tmux' ? ' (current)' : ''}`,
+    });
+    items.push({
+      command: '/config runtimeMode pty',
+      label: `runtimeMode -> pty${configRuntimeMode() === 'pty' ? ' (current)' : ''}`,
+    });
+
+    const agentSet = new Set<string>(['auto', ...configAgentOptions()]);
+    const selected = selectedDefaultAgent();
+    if (selected !== 'auto') {
+      agentSet.add(selected);
+    }
+
+    for (const option of agentSet) {
+      const display = option === 'auto' ? '(auto)' : option;
+      const current = selected === option ? ' (current)' : '';
+      items.push({
+        command: `/config defaultAgent ${option}`,
+        label: `defaultAgent -> ${display}${current}`,
+      });
+    }
+
+    items.push({
+      command: '/config defaultChannel auto',
+      label: 'defaultChannel -> (auto)',
+    });
+
+    return items;
+  });
+
+  const clampConfigSelection = (offset: number) => {
+    const items = configItems();
+    if (items.length === 0) return;
+    const next = (configSelected() + offset + items.length) % items.length;
+    setConfigSelected(next);
+  };
+
+  const executeConfigSelection = async () => {
+    if (configLoading()) return;
+    const item = configItems()[configSelected()];
+    if (!item) return;
+    const lines = await runCommandCapture(item.command);
+    const line = lines.find((entry) => entry.startsWith('✅') || entry.startsWith('⚠️')) || 'Config updated';
+    setConfigMessage(line);
+    await refreshConfigDialog();
+  };
+
   const openCommandPalette = () => {
     setPaletteOpen(true);
     setPaletteQuery('');
@@ -290,6 +441,11 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       closeCommandPalette();
       setListOpen(true);
       setListSelected(0);
+      return;
+    }
+    if (item.command === '/config') {
+      closeCommandPalette();
+      openConfigDialog();
       return;
     }
     closeCommandPalette();
@@ -419,6 +575,11 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       return;
     }
 
+    if (command === 'config' || command === '/config') {
+      openConfigDialog();
+      return;
+    }
+
     const shouldClose = await props.input.onCommand(command, () => {});
     if (shouldClose) {
       renderer.destroy();
@@ -427,7 +588,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   };
 
   const canHandleRuntimeInput = () => {
-    return runtimeInputMode() && !paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !!currentSession() && !!currentWindow() && !value().startsWith('/');
+    return runtimeInputMode() && !paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !configOpen() && !!currentSession() && !!currentWindow() && !value().startsWith('/');
   };
 
   const toRuntimeRawKey = (evt: {
@@ -482,7 +643,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
 
     const ctrlNumberIndex = resolveCtrlNumberIndex(evt);
     if (ctrlNumberIndex !== null) {
-      if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen()) {
+      if (!paletteOpen() && !stopOpen() && !newOpen() && !listOpen() && !configOpen()) {
         evt.preventDefault();
         void quickSwitchToIndex(ctrlNumberIndex);
       }
@@ -609,6 +770,29 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       if (evt.name === 'return') {
         evt.preventDefault();
         void executeListSelection();
+        return;
+      }
+    }
+
+    if (configOpen()) {
+      if (evt.name === 'escape') {
+        evt.preventDefault();
+        closeConfigDialog();
+        return;
+      }
+      if (evt.name === 'up' || (evt.ctrl && evt.name === 'p')) {
+        evt.preventDefault();
+        clampConfigSelection(-1);
+        return;
+      }
+      if (evt.name === 'down' || (evt.ctrl && evt.name === 'n')) {
+        evt.preventDefault();
+        clampConfigSelection(1);
+        return;
+      }
+      if (evt.name === 'return') {
+        evt.preventDefault();
+        void executeConfigSelection();
         return;
       }
     }
@@ -839,7 +1023,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
                   setSelected(0);
                 }}
                 onKeyDown={(event) => {
-                  if (paletteOpen() || stopOpen() || newOpen() || listOpen()) {
+                  if (paletteOpen() || stopOpen() || newOpen() || listOpen() || configOpen()) {
                     event.preventDefault();
                     return;
                   }
@@ -1015,6 +1199,61 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
             <box paddingLeft={4} paddingRight={2} paddingTop={1}>
               <text fg={palette.text}>Stop </text>
               <text fg={palette.muted}>enter</text>
+            </box>
+          </box>
+        </box>
+      </Show>
+
+      <Show when={configOpen()}>
+        <box
+          width={dims().width}
+          height={dims().height}
+          backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+          position="absolute"
+          left={0}
+          top={0}
+          alignItems="center"
+          paddingTop={Math.floor(dims().height / 4)}
+        >
+          <box
+            width={Math.max(54, Math.min(74, dims().width - 2))}
+            backgroundColor={palette.panel}
+            flexDirection="column"
+            paddingTop={1}
+            paddingBottom={1}
+          >
+            <box paddingLeft={4} paddingRight={4} flexDirection="row" justifyContent="space-between">
+              <text fg={palette.primary} attributes={TextAttributes.BOLD}>Config</text>
+              <text fg={palette.muted}>esc</text>
+            </box>
+            <box paddingLeft={4} paddingRight={4} paddingTop={1} flexDirection="column">
+              <text fg={palette.text}>{`keepChannel: ${configKeepChannel()}`}</text>
+              <text fg={palette.text}>{`runtimeMode: ${configRuntimeMode()}`}</text>
+              <text fg={palette.text}>{`defaultAgent: ${configDefaultAgent()}`}</text>
+              <text fg={palette.text}>{`defaultChannel: ${configDefaultChannel()}`}</text>
+            </box>
+            <Show when={!configLoading()} fallback={<box paddingLeft={4} paddingRight={4} paddingTop={1}><text fg={palette.muted}>Loading...</text></box>}>
+              <For each={configItems().slice(0, 12)}>
+                {(item, index) => (
+                  <box
+                    paddingLeft={3}
+                    paddingRight={1}
+                    paddingTop={index() === 0 ? 1 : 0}
+                    backgroundColor={configSelected() === index() ? palette.selectedBg : palette.panel}
+                  >
+                    <text fg={configSelected() === index() ? palette.selectedFg : palette.text}>{item.label}</text>
+                  </box>
+                )}
+              </For>
+            </Show>
+            <box paddingLeft={4} paddingRight={2} paddingTop={1}>
+              <text fg={palette.text}>Apply </text>
+              <text fg={palette.muted}>enter</text>
+              <text fg={palette.text}>  Close </text>
+              <text fg={palette.muted}>esc</text>
+            </box>
+            <box paddingLeft={4} paddingRight={2}>
+              <text fg={palette.muted}>{configMessage()}</text>
             </box>
           </box>
         </box>

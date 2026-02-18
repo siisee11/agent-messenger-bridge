@@ -185,7 +185,7 @@ export class RuntimeStreamServer {
           this.send(client, { type: 'error', code: 'window_not_found', message: 'Window not found' });
           return;
         }
-        this.runtime.typeKeysToWindow(parsed.sessionName, parsed.windowName, bytes.toString('latin1'));
+        this.runtime.typeKeysToWindow(parsed.sessionName, parsed.windowName, bytes.toString('utf8'));
         this.send(client, { type: 'input', ok: true, windowId: message.windowId });
         return;
       }

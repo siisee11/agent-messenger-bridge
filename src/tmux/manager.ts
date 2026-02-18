@@ -479,7 +479,7 @@ export class TmuxManager {
 
     try {
       // Send keys and Enter separately for reliability
-      this.executor.exec(`tmux send-keys -t ${escapedTarget} ${escapedKeys}`);
+      this.executor.exec(`tmux send-keys -l -t ${escapedTarget} ${escapedKeys}`);
       this.executor.exec(`tmux send-keys -t ${escapedTarget} Enter`);
     } catch (error) {
       throw new Error(`Failed to send keys to window '${windowName}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`);
@@ -496,7 +496,7 @@ export class TmuxManager {
     const escapedKeys = escapeShellArg(keys);
 
     try {
-      this.executor.exec(`tmux send-keys -t ${escapedTarget} ${escapedKeys}`);
+      this.executor.exec(`tmux send-keys -l -t ${escapedTarget} ${escapedKeys}`);
     } catch (error) {
       throw new Error(`Failed to type keys to window '${windowName}' in session '${sessionName}': ${error instanceof Error ? error.message : String(error)}`);
     }

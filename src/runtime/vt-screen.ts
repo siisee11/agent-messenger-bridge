@@ -80,7 +80,10 @@ export class VtScreen {
 
     let i = 0;
     while (i < data.length) {
-      const ch = data[i];
+      const cp = data.codePointAt(i);
+      if (cp === undefined) break;
+      const ch = String.fromCodePoint(cp);
+      const step = ch.length;
 
       if (ch === '\x1b') {
         const next = data[i + 1];
@@ -157,21 +160,21 @@ export class VtScreen {
       if (ch === '\r') {
         this.wrapPending = false;
         this.cursorCol = 0;
-        i += 1;
+        i += step;
         continue;
       }
 
       if (ch === '\n') {
         this.wrapPending = false;
         this.lineFeed();
-        i += 1;
+        i += step;
         continue;
       }
 
       if (ch === '\b') {
         this.wrapPending = false;
         this.cursorCol = Math.max(0, this.cursorCol - 1);
-        i += 1;
+        i += step;
         continue;
       }
 
@@ -180,18 +183,18 @@ export class VtScreen {
         for (let s = 0; s < spaces; s += 1) {
           this.writeChar(' ');
         }
-        i += 1;
+        i += step;
         continue;
       }
 
-      const code = data.charCodeAt(i);
+      const code = ch.charCodeAt(0);
       if (code < 0x20 || code === 0x7f) {
-        i += 1;
+        i += step;
         continue;
       }
 
       this.writeChar(ch);
-      i += 1;
+      i += step;
     }
   }
 
@@ -496,10 +499,35 @@ export class VtScreen {
     this.ensureCursorRow();
     this.clampCursor();
 
+    const width = charDisplayWidth(ch);
+    if (width <= 0) return;
+
+    if (width === 1) {
+      this.lines[this.cursorRow][this.cursorCol] = this.makeCell(ch);
+      if (this.cursorCol < this.cols - 1) {
+        this.cursorCol += 1;
+      } else {
+        this.wrapPending = true;
+      }
+      return;
+    }
+
+    if (this.cursorCol >= this.cols - 1) {
+      this.cursorCol = 0;
+      this.lineFeed();
+      this.ensureCursorRow();
+      this.clampCursor();
+    }
+
     this.lines[this.cursorRow][this.cursorCol] = this.makeCell(ch);
-    if (this.cursorCol < this.cols - 1) {
-      this.cursorCol += 1;
+    if (this.cursorCol + 1 < this.cols) {
+      this.lines[this.cursorRow][this.cursorCol + 1] = this.makeCell('');
+    }
+
+    if (this.cursorCol < this.cols - 2) {
+      this.cursorCol += 2;
     } else {
+      this.cursorCol = this.cols - 1;
       this.wrapPending = true;
     }
   }
@@ -844,6 +872,32 @@ function xterm256Color(index: number): string | undefined {
   const b = i % 6;
   const map = [0, 95, 135, 175, 215, 255];
   return `#${toHex(map[r])}${toHex(map[g])}${toHex(map[b])}`;
+}
+
+function charDisplayWidth(ch: string): number {
+  if (!ch) return 0;
+  const cp = ch.codePointAt(0);
+  if (cp === undefined || cp === 0) return 0;
+
+  if (cp < 32 || (cp >= 0x7f && cp < 0xa0)) return 0;
+
+  if (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2329 && cp <= 0x232a) ||
+    (cp >= 0x2e80 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe10 && cp <= 0xfe19) ||
+    (cp >= 0xfe30 && cp <= 0xfe6f) ||
+    (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1faff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
+  ) {
+    return 2;
+  }
+
+  return 1;
 }
 
 function cloneLines(lines: Cell[][]): Cell[][] {
