@@ -353,8 +353,12 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
     )
     .command(
       'daemon <action>',
-      'Manage the global bridge daemon (start|stop|status)',
-      (y: Argv) => y.positional('action', { type: 'string', demandOption: true }),
+      'Manage the global bridge daemon (start|restart|stop|status)',
+      (y: Argv) => y.positional('action', {
+        type: 'string',
+        demandOption: true,
+        choices: ['start', 'restart', 'stop', 'status'],
+      }),
       async (argv: any) => daemonCommand(argv.action)
     )
     .command(

@@ -1,11 +1,17 @@
 import chalk from 'chalk';
 import { ensureDaemonRunning, getDaemonStatus, stopDaemon } from '../../app/daemon-service.js';
+import { config } from '../../config/index.js';
 import { ensureTmuxInstalled } from '../common/tmux.js';
 
 export async function daemonCommand(action: string) {
+  const runtimeMode = config.runtimeMode || 'tmux';
+  const requiresTmux = runtimeMode === 'tmux';
+
   switch (action) {
     case 'start': {
-      ensureTmuxInstalled();
+      if (requiresTmux) {
+        ensureTmuxInstalled();
+      }
       const result = await ensureDaemonRunning();
       if (result.alreadyRunning) {
         console.log(chalk.green(`✅ Daemon already running (port ${result.port})`));
@@ -13,6 +19,26 @@ export async function daemonCommand(action: string) {
       }
       if (result.ready) {
         console.log(chalk.green(`✅ Daemon started (port ${result.port})`));
+      } else {
+        console.log(chalk.yellow(`⚠️  Daemon may not be ready. Check logs: ${result.logFile}`));
+      }
+      break;
+    }
+    case 'restart': {
+      if (requiresTmux) {
+        ensureTmuxInstalled();
+      }
+
+      const stopped = stopDaemon();
+      if (stopped) {
+        console.log(chalk.gray('🔄 Daemon stopped. Starting again...'));
+      } else {
+        console.log(chalk.gray('Daemon was not running. Starting fresh...'));
+      }
+
+      const result = await ensureDaemonRunning();
+      if (result.ready) {
+        console.log(chalk.green(`✅ Daemon restarted (port ${result.port})`));
       } else {
         console.log(chalk.yellow(`⚠️  Daemon may not be ready. Check logs: ${result.logFile}`));
       }
@@ -39,7 +65,7 @@ export async function daemonCommand(action: string) {
     }
     default:
       console.error(chalk.red(`Unknown action: ${action}`));
-      console.log(chalk.gray('Available actions: start, stop, status'));
+      console.log(chalk.gray('Available actions: start, restart, stop, status'));
       process.exit(1);
   }
 }

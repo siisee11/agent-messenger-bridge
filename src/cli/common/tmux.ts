@@ -225,6 +225,7 @@ export function applyTmuxCliOverrides(base: BridgeConfig, options: TmuxCliOption
   const baseHookPort = base.hookServerPort;
   const baseDefaultAgentCli = base.defaultAgentCli;
   const baseOpencode = base.opencode;
+  const baseRuntimeMode = base.runtimeMode;
 
   const sharedNameRaw = options?.tmuxSharedSessionName as string | undefined;
 
@@ -232,6 +233,7 @@ export function applyTmuxCliOverrides(base: BridgeConfig, options: TmuxCliOption
     discord: baseDiscord,
     ...(base.slack ? { slack: base.slack } : {}),
     ...(base.messagingPlatform ? { messagingPlatform: base.messagingPlatform } : {}),
+    ...(baseRuntimeMode ? { runtimeMode: baseRuntimeMode } : {}),
     hookServerPort: baseHookPort,
     defaultAgentCli: baseDefaultAgentCli,
     opencode: baseOpencode,
