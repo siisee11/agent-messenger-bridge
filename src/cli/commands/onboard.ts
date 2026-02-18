@@ -67,6 +67,28 @@ async function choosePlatform(): Promise<'discord' | 'slack'> {
   return 'discord';
 }
 
+async function chooseRuntimeMode(explicitMode?: string): Promise<'tmux' | 'pty'> {
+  if (explicitMode === 'tmux' || explicitMode === 'pty') {
+    return explicitMode;
+  }
+
+  if (!isInteractiveShell()) {
+    console.log(chalk.yellow('⚠️ Non-interactive shell: using runtime mode pty.'));
+    return 'pty';
+  }
+
+  console.log(chalk.white('\nChoose runtime mode'));
+  console.log(chalk.gray('   1. pty (default)'));
+  console.log(chalk.gray('   2. tmux (only for users comfortable with tmux)'));
+
+  while (true) {
+    const answer = await prompt(chalk.white('\nSelect runtime mode [1-2] (Enter = default): '));
+    if (!answer || answer === '1') return 'pty';
+    if (answer === '2') return 'tmux';
+    console.log(chalk.yellow('Please enter a valid number.'));
+  }
+}
+
 async function onboardDiscord(token?: string): Promise<void> {
   const existingToken = normalizeDiscordToken(getConfigValue('token'));
   token = normalizeDiscordToken(token);
@@ -225,6 +247,7 @@ export async function onboardCommand(options: {
   platform?: string;
   slackBotToken?: string;
   slackAppToken?: string;
+  runtimeMode?: string;
 }) {
   try {
     console.log(chalk.cyan('\n🚀 Discode Onboarding\n'));
@@ -238,6 +261,10 @@ export async function onboardCommand(options: {
     } else {
       await onboardDiscord(options.token);
     }
+
+    const runtimeMode = await chooseRuntimeMode(options.runtimeMode);
+    saveConfig({ runtimeMode });
+    console.log(chalk.green(`✅ Runtime mode saved: ${runtimeMode}`));
 
     const installedAgents = agentRegistry.getAll().filter((a) => a.isInstalled());
     const defaultAgentCli = await chooseDefaultAgentCli(installedAgents);

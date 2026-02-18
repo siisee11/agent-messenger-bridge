@@ -221,11 +221,13 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission',
       (y: Argv) => y
         .option('platform', { type: 'string', choices: ['discord', 'slack'], describe: 'Messaging platform to use' })
+        .option('runtime-mode', { type: 'string', choices: ['tmux', 'pty'], describe: 'Runtime backend to use' })
         .option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' })
         .option('slack-bot-token', { type: 'string', describe: 'Slack bot token (xoxb-...)' })
         .option('slack-app-token', { type: 'string', describe: 'Slack app-level token (xapp-...)' }),
       async (argv: any) => onboardCommand({
         platform: argv.platform,
+        runtimeMode: argv.runtimeMode,
         token: argv.token,
         slackBotToken: argv.slackBotToken,
         slackAppToken: argv.slackAppToken,
