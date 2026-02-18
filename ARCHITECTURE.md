@@ -105,10 +105,12 @@ Implemented in `RuntimeStreamServer` + `RuntimeStreamClient`:
 - Daemon -> client messages:
   - `frame` (current screen lines)
   - `frame-styled` (styled terminal segments with color/attributes)
+  - `patch` / `patch-styled` (feature-flagged diff updates)
   - `window-exit` (window disappeared/exited)
   - `error`
 
 This stream path is the primary PTY runtime I/O channel.
+Optional patch/diff optimization is enabled with `DISCODE_STREAM_PATCH_DIFF=1`.
 
 
 ## 6. CLI Behavior by Runtime Mode

@@ -27,6 +27,16 @@ type FrameStyledMessage = {
   cursorCol?: number;
 };
 
+type PatchStyledMessage = {
+  type: 'patch-styled';
+  windowId: string;
+  seq: number;
+  lineCount: number;
+  ops: Array<{ index: number; line: TerminalStyledLine }>;
+  cursorRow?: number;
+  cursorCol?: number;
+};
+
 type WindowExitMessage = {
   type: 'window-exit';
   windowId: string;
@@ -38,6 +48,7 @@ type RuntimeStreamMessage =
   | FrameMessage
   | PatchMessage
   | FrameStyledMessage
+  | PatchStyledMessage
   | WindowExitMessage
   | { type: 'hello'; ok: boolean }
   | { type: 'focus'; ok: boolean; windowId: string }
@@ -48,6 +59,7 @@ type RuntimeStreamClientHandlers = {
   onFrame?: (frame: FrameMessage) => void;
   onPatch?: (patch: PatchMessage) => void;
   onFrameStyled?: (frame: FrameStyledMessage) => void;
+  onPatchStyled?: (patch: PatchStyledMessage) => void;
   onWindowExit?: (event: WindowExitMessage) => void;
   onError?: (error: string) => void;
   onStateChange?: (state: 'connected' | 'disconnected') => void;
@@ -185,6 +197,10 @@ export class RuntimeStreamClient {
     }
     if (msg.type === 'frame-styled') {
       this.handlers.onFrameStyled?.(msg);
+      return;
+    }
+    if (msg.type === 'patch-styled') {
+      this.handlers.onPatchStyled?.(msg);
       return;
     }
     if (msg.type === 'window-exit') {

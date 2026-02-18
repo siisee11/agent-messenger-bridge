@@ -261,8 +261,9 @@ Design direction:
   - TUI runtime path is stream-first for input/output; HTTP path is fallback-only
   - Stream reconnect/disconnect handling and runtime transport status visualization added
   - Tests added for stream client/server recovery scenarios
+  - Feature-flagged patch/diff reintroduced (`DISCODE_STREAM_PATCH_DIFF=1`)
 - Remaining:
-  - Performance-tuned patch/diff streaming (feature-flagged) for extra CPU/latency gains
+  - Further tuning of patch/diff thresholds and jitter controls
 
 ## 5.8 tmux-style VT Fidelity Migration
 
@@ -288,7 +289,7 @@ Current status:
 - Implemented:
   - `VtScreen` incremental terminal state engine (`src/runtime/vt-screen.ts`)
   - `PtyRuntime.getWindowFrame` exposing styled frames
-  - Stream protocol + client handling for `frame-styled`
+  - Stream protocol + client handling for `frame-styled` and `patch-styled`
   - TUI styled segment rendering path
 - Remaining:
   - Higher-fidelity VT coverage parity (additional escape-sequence handling)

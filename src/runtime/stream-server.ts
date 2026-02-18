@@ -19,6 +19,14 @@ type RuntimeStreamClientState = {
   lastEmitAt: number;
   windowMissingNotified: boolean;
   lastStyledSignature: string;
+  lastStyledLines: TerminalStyledLine[];
+};
+
+type RuntimeStreamServerOptions = {
+  tickMs?: number;
+  minEmitIntervalMs?: number;
+  enablePatchDiff?: boolean;
+  patchThresholdRatio?: number;
 };
 
 type RuntimeStreamInbound =
@@ -32,11 +40,21 @@ export class RuntimeStreamServer {
   private server?: Server;
   private clients = new Set<RuntimeStreamClientState>();
   private pollTimer?: NodeJS.Timeout;
+  private tickMs: number;
+  private minEmitIntervalMs: number;
+  private enablePatchDiff: boolean;
+  private patchThresholdRatio: number;
 
   constructor(
     private runtime: AgentRuntime,
     private socketPath: string = getDefaultRuntimeSocketPath(),
-  ) {}
+    options?: RuntimeStreamServerOptions,
+  ) {
+    this.tickMs = clampNumber(options?.tickMs, 16, 200, 33);
+    this.minEmitIntervalMs = clampNumber(options?.minEmitIntervalMs, 16, 250, 50);
+    this.enablePatchDiff = options?.enablePatchDiff ?? process.env.DISCODE_STREAM_PATCH_DIFF === '1';
+    this.patchThresholdRatio = Math.max(0.05, Math.min(0.95, options?.patchThresholdRatio ?? 0.55));
+  }
 
   start(): void {
     this.cleanupSocketPath();
@@ -54,6 +72,7 @@ export class RuntimeStreamServer {
         lastEmitAt: 0,
         windowMissingNotified: false,
         lastStyledSignature: '',
+        lastStyledLines: [],
       };
       this.clients.add(state);
 
@@ -81,7 +100,7 @@ export class RuntimeStreamServer {
     });
 
     this.server.listen(this.socketPath);
-    this.pollTimer = setInterval(() => this.flushFrames(), 33);
+    this.pollTimer = setInterval(() => this.flushFrames(), this.tickMs);
   }
 
   stop(): void {
@@ -131,6 +150,7 @@ export class RuntimeStreamServer {
         client.lastLines = [];
         client.windowMissingNotified = false;
         client.lastStyledSignature = '';
+        client.lastStyledLines = [];
         this.flushClientFrame(client);
         return;
       }
@@ -145,6 +165,7 @@ export class RuntimeStreamServer {
         client.lastLines = [];
         client.windowMissingNotified = false;
         client.lastStyledSignature = '';
+        client.lastStyledLines = [];
         this.send(client, { type: 'focus', ok: true, windowId: message.windowId });
         this.flushClientFrame(client);
         return;
@@ -181,6 +202,7 @@ export class RuntimeStreamServer {
         client.lastLines = [];
         client.windowMissingNotified = false;
         client.lastStyledSignature = '';
+        client.lastStyledLines = [];
         this.flushClientFrame(client);
         return;
       }
@@ -220,26 +242,53 @@ export class RuntimeStreamServer {
 
     const now = Date.now();
     // Coalesce bursts to reduce CPU/load and improve input responsiveness.
-    if (client.lastBufferLength >= 0 && now - client.lastEmitAt < 50) {
+    if (client.lastBufferLength >= 0 && now - client.lastEmitAt < this.minEmitIntervalMs) {
       return;
     }
 
     const styledFrame = this.runtime.getWindowFrame?.(parsed.sessionName, parsed.windowName, client.cols, client.rows);
     if (styledFrame) {
-      const signature = buildStyledSignature(styledFrame.lines);
+      const styledLines = cloneStyledLines(styledFrame.lines);
+      const signature = buildStyledSignature(styledLines);
       if (signature !== client.lastStyledSignature) {
         client.lastStyledSignature = signature;
         client.lastBufferLength = raw.length;
         client.lastEmitAt = now;
         client.seq += 1;
-        this.send(client, {
-          type: 'frame-styled',
-          windowId: client.windowId,
-          seq: client.seq,
-          lines: styledFrame.lines,
-          cursorRow: styledFrame.cursorRow,
-          cursorCol: styledFrame.cursorCol,
-        });
+
+        const patch = this.enablePatchDiff
+          ? buildStyledPatch(client.lastStyledLines, styledLines)
+          : null;
+        const usePatch = !!(
+          this.enablePatchDiff
+          && client.lastStyledLines.length > 0
+          && patch
+          && patch.ops.length > 0
+          && patch.ops.length <= Math.ceil(styledLines.length * this.patchThresholdRatio)
+        );
+
+        if (usePatch && patch) {
+          this.send(client, {
+            type: 'patch-styled',
+            windowId: client.windowId,
+            seq: client.seq,
+            lineCount: styledLines.length,
+            ops: patch.ops,
+            cursorRow: styledFrame.cursorRow,
+            cursorCol: styledFrame.cursorCol,
+          });
+        } else {
+          this.send(client, {
+            type: 'frame-styled',
+            windowId: client.windowId,
+            seq: client.seq,
+            lines: styledLines,
+            cursorRow: styledFrame.cursorRow,
+            cursorCol: styledFrame.cursorCol,
+          });
+        }
+
+        client.lastStyledLines = styledLines;
       }
       return;
     }
@@ -259,12 +308,32 @@ export class RuntimeStreamServer {
     client.lastSnapshot = snapshot;
     client.seq += 1;
     client.lastEmitAt = now;
-    this.send(client, {
-      type: 'frame',
-      windowId: client.windowId,
-      seq: client.seq,
-      lines,
-    });
+
+    const patch = this.enablePatchDiff ? buildLinePatch(client.lastLines, lines) : null;
+    const usePatch = !!(
+      this.enablePatchDiff
+      && client.lastLines.length > 0
+      && patch
+      && patch.ops.length > 0
+      && patch.ops.length <= Math.ceil(lines.length * this.patchThresholdRatio)
+    );
+
+    if (usePatch && patch) {
+      this.send(client, {
+        type: 'patch',
+        windowId: client.windowId,
+        seq: client.seq,
+        lineCount: lines.length,
+        ops: patch.ops,
+      });
+    } else {
+      this.send(client, {
+        type: 'frame',
+        windowId: client.windowId,
+        seq: client.seq,
+        lines,
+      });
+    }
     client.lastLines = lines;
   }
 
@@ -326,4 +395,49 @@ function buildStyledSignature(lines: TerminalStyledLine[]): string {
   return lines
     .map((line) => line.segments.map((seg) => `${seg.text}\u001f${seg.fg || ''}\u001f${seg.bg || ''}\u001f${seg.bold ? '1' : '0'}\u001f${seg.italic ? '1' : '0'}\u001f${seg.underline ? '1' : '0'}`).join('\u001e'))
     .join('\u001d');
+}
+
+function buildLinePatch(prev: string[], next: string[]): { ops: Array<{ index: number; line: string }> } | null {
+  const max = Math.max(prev.length, next.length);
+  const ops: Array<{ index: number; line: string }> = [];
+  for (let i = 0; i < max; i += 1) {
+    const before = prev[i] || '';
+    const after = next[i] || '';
+    if (before !== after) {
+      ops.push({ index: i, line: after });
+    }
+  }
+  if (ops.length === 0 && prev.length === next.length) return null;
+  return { ops };
+}
+
+function buildStyledPatch(prev: TerminalStyledLine[], next: TerminalStyledLine[]): { ops: Array<{ index: number; line: TerminalStyledLine }> } | null {
+  const max = Math.max(prev.length, next.length);
+  const ops: Array<{ index: number; line: TerminalStyledLine }> = [];
+  for (let i = 0; i < max; i += 1) {
+    const before = prev[i] || { segments: [] };
+    const after = next[i] || { segments: [] };
+    if (buildStyledSignature([before]) !== buildStyledSignature([after])) {
+      ops.push({ index: i, line: cloneStyledLine(after) });
+    }
+  }
+  if (ops.length === 0 && prev.length === next.length) return null;
+  return { ops };
+}
+
+function cloneStyledLines(lines: TerminalStyledLine[]): TerminalStyledLine[] {
+  return lines.map(cloneStyledLine);
+}
+
+function cloneStyledLine(line: TerminalStyledLine): TerminalStyledLine {
+  return {
+    segments: line.segments.map((seg) => ({
+      text: seg.text,
+      fg: seg.fg,
+      bg: seg.bg,
+      bold: seg.bold,
+      italic: seg.italic,
+      underline: seg.underline,
+    })),
+  };
 }

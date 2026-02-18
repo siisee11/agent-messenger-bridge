@@ -311,6 +311,65 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       }
       runtimeSupported = true;
     },
+    onPatchStyled: (patch) => {
+      const current = runtimeStyledCache.get(patch.windowId) || [];
+      const next = current.slice(0, patch.lineCount).map((line) => ({
+        segments: line.segments.map((seg) => ({
+          text: seg.text,
+          fg: seg.fg,
+          bg: seg.bg,
+          bold: seg.bold,
+          italic: seg.italic,
+          underline: seg.underline,
+        })),
+      }));
+      while (next.length < patch.lineCount) {
+        next.push({
+          segments: [{
+            text: '',
+            fg: undefined,
+            bg: undefined,
+            bold: undefined,
+            italic: undefined,
+            underline: undefined,
+          }],
+        });
+      }
+
+      for (const op of patch.ops) {
+        if (op.index >= 0 && op.index < patch.lineCount) {
+          next[op.index] = {
+            segments: op.line.segments.map((seg) => ({
+              text: seg.text,
+              fg: seg.fg,
+              bg: seg.bg,
+              bold: seg.bold,
+              italic: seg.italic,
+              underline: seg.underline,
+            })),
+          };
+        }
+      }
+
+      const output = next
+        .map((line) => line.segments.map((seg) => seg.text).join(''))
+        .join('\n');
+      runtimeFrameCache.set(patch.windowId, output);
+      runtimeStyledCache.set(patch.windowId, next);
+
+      const parsed = splitWindowId(patch.windowId);
+      if (parsed) {
+        for (const listener of runtimeFrameListeners) {
+          listener({
+            sessionName: parsed.sessionName,
+            windowName: parsed.windowName,
+            output,
+            styled: next,
+          });
+        }
+      }
+      runtimeSupported = true;
+    },
     onPatch: (patch) => {
       const current = runtimeFrameLines.get(patch.windowId) || [];
       const next = current.slice(0, patch.lineCount);
