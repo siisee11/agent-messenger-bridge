@@ -146,7 +146,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const openProjects = createMemo(() => projects().filter((item) => item.open));
   const sidebarWidth = createMemo(() => Math.max(34, Math.min(52, Math.floor(dims().width * 0.33))));
   const terminalPanelWidth = createMemo(() => Math.max(24, dims().width - sidebarWidth() - 7));
-  const terminalPanelHeight = createMemo(() => Math.max(12, dims().height - 8));
+  const terminalPanelHeight = createMemo(() => Math.max(12, dims().height - 3));
   const quickSwitchWindows = createMemo(() =>
     openProjects()
       .slice()
