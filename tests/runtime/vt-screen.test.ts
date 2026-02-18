@@ -26,4 +26,32 @@ describe('VtScreen', () => {
     const lines = frame.lines.map((line) => line.segments.map((seg) => seg.text).join(''));
     expect(lines.some((line) => line.startsWith('new'))).toBe(true);
   });
+
+  it('restores primary buffer after alt-screen leave', () => {
+    const screen = new VtScreen(20, 6);
+    screen.write('primary');
+    screen.write('\x1b[?1049h');
+    screen.write('alt-screen');
+    screen.write('\x1b[?1049l');
+
+    const frame = screen.snapshot(20, 6);
+    const lines = frame.lines.map((line) => line.segments.map((seg) => seg.text).join(''));
+    const joined = lines.join('\n');
+
+    expect(joined.includes('primary')).toBe(true);
+    expect(joined.includes('alt-screen')).toBe(false);
+  });
+
+  it('handles insert/delete character CSI commands', () => {
+    const screen = new VtScreen(12, 4);
+    screen.write('abcdef');
+    screen.write('\r\x1b[3C');
+    screen.write('\x1b[2@');
+    screen.write('XY');
+    screen.write('\r\x1b[1P');
+
+    const frame = screen.snapshot(12, 6);
+    const lines = frame.lines.map((line) => line.segments.map((seg) => seg.text).join(''));
+    expect(lines.some((line) => line.startsWith('bcXYdef'))).toBe(true);
+  });
 });

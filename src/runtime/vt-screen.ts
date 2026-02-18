@@ -33,6 +33,14 @@ type Cell = {
   style: TerminalStyle;
 };
 
+type SavedScreenState = {
+  lines: Cell[][];
+  cursorRow: number;
+  cursorCol: number;
+  savedRow: number;
+  savedCol: number;
+};
+
 export class VtScreen {
   private cols: number;
   private rows: number;
@@ -43,6 +51,8 @@ export class VtScreen {
   private savedRow = 0;
   private savedCol = 0;
   private currentStyle: TerminalStyle = {};
+  private usingAltScreen = false;
+  private savedPrimaryScreen?: SavedScreenState;
 
   constructor(cols = 120, rows = 40, scrollback = 2000) {
     this.cols = clamp(cols, 20, 300);
@@ -181,6 +191,9 @@ export class VtScreen {
       const parsed = parseInt(parts[index] || '', 10);
       return Number.isFinite(parsed) ? parsed : fallback;
     };
+    const privateParams = parts
+      .map((part) => parseInt(part || '', 10))
+      .filter((value) => Number.isFinite(value));
 
     switch (final) {
       case 'A':
@@ -220,6 +233,27 @@ export class VtScreen {
       case 'K':
         this.clearLine(param(0, 0));
         break;
+      case '@':
+        this.insertChars(param(0, 1));
+        break;
+      case 'P':
+        this.deleteChars(param(0, 1));
+        break;
+      case 'X':
+        this.eraseChars(param(0, 1));
+        break;
+      case 'L':
+        this.insertLines(param(0, 1));
+        break;
+      case 'M':
+        this.deleteLines(param(0, 1));
+        break;
+      case 'S':
+        this.scrollUp(param(0, 1));
+        break;
+      case 'T':
+        this.scrollDown(param(0, 1));
+        break;
       case 's':
         this.savedRow = this.cursorRow;
         this.savedCol = this.cursorCol;
@@ -233,8 +267,15 @@ export class VtScreen {
         break;
       case 'h':
       case 'l':
-        if (isPrivate && (param(0, 0) === 1049 || param(0, 0) === 47)) {
-          this.clearDisplay(2);
+        if (isPrivate) {
+          const wantsAlt = privateParams.some((v) => v === 1049 || v === 1047 || v === 47);
+          if (wantsAlt) {
+            if (final === 'h') {
+              this.enterAltScreen();
+            } else {
+              this.leaveAltScreen();
+            }
+          }
         }
         break;
       default:
@@ -249,6 +290,9 @@ export class VtScreen {
     this.ensureCursorRow();
     if (mode === 2) {
       this.lines = [this.makeLine(this.cols)];
+      if (this.usingAltScreen) {
+        while (this.lines.length < this.rows) this.lines.push(this.makeLine(this.cols));
+      }
       this.cursorRow = 0;
       this.cursorCol = 0;
       return;
@@ -285,6 +329,80 @@ export class VtScreen {
     for (let c = this.cursorCol; c < this.cols; c += 1) {
       line[c] = this.makeCell(' ');
     }
+  }
+
+  private insertChars(count: number): void {
+    this.ensureCursorRow();
+    const line = this.lines[this.cursorRow];
+    const n = Math.max(1, Math.min(this.cols, count));
+    for (let i = this.cols - 1; i >= this.cursorCol + n; i -= 1) {
+      line[i] = line[i - n];
+    }
+    for (let i = 0; i < n && this.cursorCol + i < this.cols; i += 1) {
+      line[this.cursorCol + i] = this.makeCell(' ');
+    }
+  }
+
+  private deleteChars(count: number): void {
+    this.ensureCursorRow();
+    const line = this.lines[this.cursorRow];
+    const n = Math.max(1, Math.min(this.cols, count));
+    for (let i = this.cursorCol; i < this.cols - n; i += 1) {
+      line[i] = line[i + n];
+    }
+    for (let i = this.cols - n; i < this.cols; i += 1) {
+      line[i] = this.makeCell(' ');
+    }
+  }
+
+  private eraseChars(count: number): void {
+    this.ensureCursorRow();
+    const line = this.lines[this.cursorRow];
+    const n = Math.max(1, Math.min(this.cols - this.cursorCol, count));
+    for (let i = 0; i < n; i += 1) {
+      line[this.cursorCol + i] = this.makeCell(' ');
+    }
+  }
+
+  private insertLines(count: number): void {
+    this.ensureCursorRow();
+    const n = Math.max(1, Math.min(this.rows, count));
+    for (let i = 0; i < n; i += 1) {
+      this.lines.splice(this.cursorRow, 0, this.makeLine(this.cols));
+    }
+    this.trimBottomToRows();
+  }
+
+  private deleteLines(count: number): void {
+    this.ensureCursorRow();
+    const n = Math.max(1, Math.min(this.rows, count));
+    for (let i = 0; i < n; i += 1) {
+      if (this.cursorRow < this.lines.length) {
+        this.lines.splice(this.cursorRow, 1);
+      }
+      this.lines.push(this.makeLine(this.cols));
+    }
+    this.trimBottomToRows();
+  }
+
+  private scrollUp(count: number): void {
+    const n = Math.max(1, Math.min(this.rows, count));
+    for (let i = 0; i < n; i += 1) {
+      if (this.lines.length > 0) {
+        this.lines.shift();
+      }
+      this.lines.push(this.makeLine(this.cols));
+    }
+    this.trimBottomToRows();
+  }
+
+  private scrollDown(count: number): void {
+    const n = Math.max(1, Math.min(this.rows, count));
+    for (let i = 0; i < n; i += 1) {
+      this.lines.unshift(this.makeLine(this.cols));
+      this.lines.pop();
+    }
+    this.trimBottomToRows();
   }
 
   private writeChar(ch: string): void {
@@ -432,6 +550,19 @@ export class VtScreen {
   }
 
   private ensureCursorRow(): void {
+    if (this.usingAltScreen) {
+      while (this.lines.length < this.rows) {
+        this.lines.push(this.makeLine(this.cols));
+      }
+      while (this.cursorRow >= this.rows) {
+        this.lines.shift();
+        this.lines.push(this.makeLine(this.cols));
+        this.cursorRow -= 1;
+      }
+      this.cursorRow = Math.max(0, this.cursorRow);
+      return;
+    }
+
     while (this.lines.length <= this.cursorRow) {
       this.lines.push(this.makeLine(this.cols));
       if (this.lines.length > this.scrollback) {
@@ -456,6 +587,53 @@ export class VtScreen {
       ch,
       style: { ...this.currentStyle },
     };
+  }
+
+  private trimBottomToRows(): void {
+    if (!this.usingAltScreen) return;
+    while (this.lines.length > this.rows) {
+      this.lines.pop();
+    }
+    while (this.lines.length < this.rows) {
+      this.lines.push(this.makeLine(this.cols));
+    }
+  }
+
+  private enterAltScreen(): void {
+    if (this.usingAltScreen) return;
+    this.savedPrimaryScreen = {
+      lines: cloneLines(this.lines),
+      cursorRow: this.cursorRow,
+      cursorCol: this.cursorCol,
+      savedRow: this.savedRow,
+      savedCol: this.savedCol,
+    };
+    this.usingAltScreen = true;
+    this.lines = [];
+    while (this.lines.length < this.rows) this.lines.push(this.makeLine(this.cols));
+    this.cursorRow = 0;
+    this.cursorCol = 0;
+    this.savedRow = 0;
+    this.savedCol = 0;
+  }
+
+  private leaveAltScreen(): void {
+    if (!this.usingAltScreen) return;
+    this.usingAltScreen = false;
+    if (!this.savedPrimaryScreen) {
+      this.lines = [this.makeLine(this.cols)];
+      this.cursorRow = 0;
+      this.cursorCol = 0;
+      this.savedRow = 0;
+      this.savedCol = 0;
+      return;
+    }
+    this.lines = cloneLines(this.savedPrimaryScreen.lines);
+    this.cursorRow = this.savedPrimaryScreen.cursorRow;
+    this.cursorCol = this.savedPrimaryScreen.cursorCol;
+    this.savedRow = this.savedPrimaryScreen.savedRow;
+    this.savedCol = this.savedPrimaryScreen.savedCol;
+    this.savedPrimaryScreen = undefined;
   }
 }
 
@@ -502,4 +680,11 @@ function xterm256Color(index: number): string | undefined {
   const b = i % 6;
   const map = [0, 95, 135, 175, 215, 255];
   return `#${toHex(map[r])}${toHex(map[g])}${toHex(map[b])}`;
+}
+
+function cloneLines(lines: Cell[][]): Cell[][] {
+  return lines.map((line) => line.map((cell) => ({
+    ch: cell.ch,
+    style: { ...cell.style },
+  })));
 }
