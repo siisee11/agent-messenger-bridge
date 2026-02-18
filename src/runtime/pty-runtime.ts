@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { chmodSync, existsSync, statSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import type { AgentRuntime } from './interface.js';
+import { VtScreen, type TerminalStyledFrame } from './vt-screen.js';
 
 const require = createRequire(import.meta.url);
 
@@ -44,6 +45,7 @@ type RuntimeWindowRecord = RuntimeWindowSnapshot & {
   process?: ChildProcessWithoutNullStreams;
   pty?: ReturnType<NodePtyModule['spawn']>;
   buffer: string;
+  screen: VtScreen;
 };
 
 type RuntimeSessionRecord = {
@@ -114,6 +116,9 @@ export class PtyRuntime implements AgentRuntime {
     record.signal = undefined;
     record.process = undefined;
     record.pty = undefined;
+    const initialCols = parseInt(env.COLUMNS || '140', 10);
+    const initialRows = parseInt(env.LINES || '40', 10);
+    record.screen.resize(initialCols, initialRows);
 
     const nodePty = this.getNodePty();
     if (nodePty) {
@@ -132,6 +137,7 @@ export class PtyRuntime implements AgentRuntime {
 
         pty.onData((data: string) => {
           this.appendBuffer(record, data);
+          record.screen.write(data);
           const response = this.buildTerminalResponse(data, parseInt(env.COLUMNS || '140', 10), parseInt(env.LINES || '40', 10));
           if (response.length > 0) {
             pty.write(response);
@@ -161,11 +167,15 @@ export class PtyRuntime implements AgentRuntime {
     record.pid = child.pid;
 
     child.stdout.on('data', (chunk: Buffer | string) => {
-      this.appendBuffer(record, typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      this.appendBuffer(record, text);
+      record.screen.write(text);
     });
 
     child.stderr.on('data', (chunk: Buffer | string) => {
-      this.appendBuffer(record, typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      this.appendBuffer(record, text);
+      record.screen.write(text);
     });
 
     child.on('spawn', () => {
@@ -243,6 +253,7 @@ export class PtyRuntime implements AgentRuntime {
         // best effort
       }
     }
+    record.screen.resize(safeCols, safeRows);
   }
 
   listWindows(sessionName?: string): RuntimeWindowSnapshot[] {
@@ -270,6 +281,13 @@ export class PtyRuntime implements AgentRuntime {
     const key = this.windowKey(sessionName, windowName);
     const record = this.windows.get(key);
     return record?.buffer || '';
+  }
+
+  getWindowFrame(sessionName: string, windowName: string, cols?: number, rows?: number): TerminalStyledFrame | null {
+    const key = this.windowKey(sessionName, windowName);
+    const record = this.windows.get(key);
+    if (!record) return null;
+    return record.screen.snapshot(cols, rows);
   }
 
   dispose(signal: NodeJS.Signals = 'SIGTERM'): void {
@@ -336,6 +354,7 @@ export class PtyRuntime implements AgentRuntime {
       windowName,
       status: 'idle',
       buffer: '',
+      screen: new VtScreen(),
     };
     this.windows.set(key, created);
     return created;

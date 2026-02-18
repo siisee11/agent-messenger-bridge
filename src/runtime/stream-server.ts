@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import type { AgentRuntime } from './interface.js';
+import type { TerminalStyledLine } from './vt-screen.js';
 import { renderTerminalSnapshot } from '../capture/parser.js';
 
 type RuntimeStreamClientState = {
@@ -17,6 +18,7 @@ type RuntimeStreamClientState = {
   lastLines: string[];
   lastEmitAt: number;
   windowMissingNotified: boolean;
+  lastStyledSignature: string;
 };
 
 type RuntimeStreamInbound =
@@ -51,6 +53,7 @@ export class RuntimeStreamServer {
         lastLines: [],
         lastEmitAt: 0,
         windowMissingNotified: false,
+        lastStyledSignature: '',
       };
       this.clients.add(state);
 
@@ -127,6 +130,7 @@ export class RuntimeStreamServer {
         client.lastSnapshot = '';
         client.lastLines = [];
         client.windowMissingNotified = false;
+        client.lastStyledSignature = '';
         this.flushClientFrame(client);
         return;
       }
@@ -140,6 +144,7 @@ export class RuntimeStreamServer {
         client.lastSnapshot = '';
         client.lastLines = [];
         client.windowMissingNotified = false;
+        client.lastStyledSignature = '';
         this.send(client, { type: 'focus', ok: true, windowId: message.windowId });
         this.flushClientFrame(client);
         return;
@@ -175,6 +180,7 @@ export class RuntimeStreamServer {
         client.lastSnapshot = '';
         client.lastLines = [];
         client.windowMissingNotified = false;
+        client.lastStyledSignature = '';
         this.flushClientFrame(client);
         return;
       }
@@ -215,6 +221,26 @@ export class RuntimeStreamServer {
     const now = Date.now();
     // Coalesce bursts to reduce CPU/load and improve input responsiveness.
     if (client.lastBufferLength >= 0 && now - client.lastEmitAt < 50) {
+      return;
+    }
+
+    const styledFrame = this.runtime.getWindowFrame?.(parsed.sessionName, parsed.windowName, client.cols, client.rows);
+    if (styledFrame) {
+      const signature = buildStyledSignature(styledFrame.lines);
+      if (signature !== client.lastStyledSignature) {
+        client.lastStyledSignature = signature;
+        client.lastBufferLength = raw.length;
+        client.lastEmitAt = now;
+        client.seq += 1;
+        this.send(client, {
+          type: 'frame-styled',
+          windowId: client.windowId,
+          seq: client.seq,
+          lines: styledFrame.lines,
+          cursorRow: styledFrame.cursorRow,
+          cursorCol: styledFrame.cursorCol,
+        });
+      }
       return;
     }
 
@@ -294,4 +320,10 @@ function decodeBase64(value: string): Buffer | null {
   } catch {
     return null;
   }
+}
+
+function buildStyledSignature(lines: TerminalStyledLine[]): string {
+  return lines
+    .map((line) => line.segments.map((seg) => `${seg.text}\u001f${seg.fg || ''}\u001f${seg.bg || ''}\u001f${seg.bold ? '1' : '0'}\u001f${seg.italic ? '1' : '0'}\u001f${seg.underline ? '1' : '0'}`).join('\u001e'))
+    .join('\u001d');
 }

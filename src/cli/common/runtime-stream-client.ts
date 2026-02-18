@@ -1,6 +1,7 @@
 import { createConnection, type Socket } from 'net';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { TerminalStyledLine } from '../../runtime/vt-screen.js';
 
 type FrameMessage = {
   type: 'frame';
@@ -17,6 +18,15 @@ type PatchMessage = {
   ops: Array<{ index: number; line: string }>;
 };
 
+type FrameStyledMessage = {
+  type: 'frame-styled';
+  windowId: string;
+  seq: number;
+  lines: TerminalStyledLine[];
+  cursorRow?: number;
+  cursorCol?: number;
+};
+
 type WindowExitMessage = {
   type: 'window-exit';
   windowId: string;
@@ -27,6 +37,7 @@ type WindowExitMessage = {
 type RuntimeStreamMessage =
   | FrameMessage
   | PatchMessage
+  | FrameStyledMessage
   | WindowExitMessage
   | { type: 'hello'; ok: boolean }
   | { type: 'focus'; ok: boolean; windowId: string }
@@ -36,6 +47,7 @@ type RuntimeStreamMessage =
 type RuntimeStreamClientHandlers = {
   onFrame?: (frame: FrameMessage) => void;
   onPatch?: (patch: PatchMessage) => void;
+  onFrameStyled?: (frame: FrameStyledMessage) => void;
   onWindowExit?: (event: WindowExitMessage) => void;
   onError?: (error: string) => void;
   onStateChange?: (state: 'connected' | 'disconnected') => void;
@@ -169,6 +181,10 @@ export class RuntimeStreamClient {
     }
     if (msg.type === 'patch') {
       this.handlers.onPatch?.(msg);
+      return;
+    }
+    if (msg.type === 'frame-styled') {
+      this.handlers.onFrameStyled?.(msg);
       return;
     }
     if (msg.type === 'window-exit') {

@@ -6,6 +6,7 @@ import { render, useKeyboard, useRenderer, useTerminalDimensions } from '@opentu
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import type { TerminalStyledLine } from '../src/runtime/vt-screen.js';
 
 declare const DISCODE_VERSION: string | undefined;
 
@@ -42,7 +43,7 @@ type TuiInput = {
   onAttachProject: (project: string) => Promise<{ currentSession?: string; currentWindow?: string } | void>;
   onRuntimeKey?: (sessionName: string, windowName: string, raw: string) => Promise<void>;
   onRuntimeResize?: (sessionName: string, windowName: string, width: number, height: number) => Promise<void> | void;
-  onRuntimeFrame?: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => () => void;
+  onRuntimeFrame?: (listener: (frame: { sessionName: string; windowName: string; output: string; styled?: TerminalStyledLine[] }) => void) => () => void;
   getRuntimeStatus?: () =>
     | {
       mode: 'stream' | 'http-fallback';
@@ -128,6 +129,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [currentSession, setCurrentSession] = createSignal(props.input.currentSession);
   const [currentWindow, setCurrentWindow] = createSignal(props.input.currentWindow);
   const [windowOutput, setWindowOutput] = createSignal('');
+  const [windowStyledLines, setWindowStyledLines] = createSignal<TerminalStyledLine[] | undefined>(undefined);
   const [runtimeInputMode, setRuntimeInputMode] = createSignal(true);
   const [runtimeStatusLine, setRuntimeStatusLine] = createSignal('transport: stream');
   const [projects, setProjects] = createSignal<Array<{
@@ -463,6 +465,14 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     return null;
   };
 
+  const toTextAttributes = (segment: { bold?: boolean; italic?: boolean; underline?: boolean }): number => {
+    let attr = 0;
+    if (segment.bold) attr |= TextAttributes.BOLD;
+    if (segment.italic) attr |= TextAttributes.ITALIC;
+    if (segment.underline) attr |= TextAttributes.UNDERLINE;
+    return attr;
+  };
+
   useKeyboard((evt) => {
     if (evt.ctrl && evt.name === 'g') {
       evt.preventDefault();
@@ -648,6 +658,9 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
             ? `transport: stream (${status.detail})`
             : `transport: http fallback (${status.detail})${suffix}`;
         setRuntimeStatusLine(line.length > 52 ? `${line.slice(0, 49)}...` : line);
+        if (status.mode === 'http-fallback') {
+          setWindowStyledLines(undefined);
+        }
       }
     };
 
@@ -656,6 +669,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       const window = currentWindow();
       if (!session || !window || !props.input.getCurrentWindowOutput) {
         setWindowOutput('');
+        setWindowStyledLines(undefined);
         return;
       }
 
@@ -664,12 +678,16 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       const output = await props.input.getCurrentWindowOutput(session, window, panelWidth, panelHeight);
       if (stopped) return;
       setWindowOutput(output || '');
+      if (!output) {
+        setWindowStyledLines(undefined);
+      }
     };
 
     if (props.input.onRuntimeFrame) {
       detachRuntimeFrame = props.input.onRuntimeFrame((frame) => {
         if (frame.sessionName !== currentSession() || frame.windowName !== currentWindow()) return;
         setWindowOutput(frame.output || '');
+        setWindowStyledLines(frame.styled);
       });
     }
 
@@ -713,9 +731,27 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
           <box flexDirection="column" flexGrow={1}>
             <Show when={currentWindow()} fallback={<text fg={palette.muted}>No active window</text>}>
               <Show when={windowOutput().length > 0} fallback={<text fg={palette.muted}>Waiting for agent output...</text>}>
-                <For each={windowOutput().split('\n').slice(-terminalPanelHeight())}>
-                  {(line) => <text fg={palette.text}>{line.length > 0 ? line : ' '}</text>}
-                </For>
+                <Show when={windowStyledLines() && windowStyledLines()!.length > 0} fallback={
+                  <For each={windowOutput().split('\n').slice(-terminalPanelHeight())}>
+                    {(line) => <text fg={palette.text}>{line.length > 0 ? line : ' '}</text>}
+                  </For>
+                }>
+                  <For each={(windowStyledLines() || []).slice(-terminalPanelHeight())}>
+                    {(line) => (
+                      <box flexDirection="row">
+                        <For each={line.segments}>
+                          {(segment) => (
+                            <text
+                              fg={segment.fg || palette.text}
+                              bg={segment.bg}
+                              attributes={toTextAttributes(segment)}
+                            >{segment.text.length > 0 ? segment.text : ' '}</text>
+                          )}
+                        </For>
+                      </box>
+                    )}
+                  </For>
+                </Show>
               </Show>
             </Show>
           </box>

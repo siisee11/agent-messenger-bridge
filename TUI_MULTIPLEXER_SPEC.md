@@ -264,6 +264,36 @@ Design direction:
 - Remaining:
   - Performance-tuned patch/diff streaming (feature-flagged) for extra CPU/latency gains
 
+## 5.8 tmux-style VT Fidelity Migration
+
+Goal:
+
+- Render agent terminal output closer to tmux fidelity (colors, inline style, cursor-driven full-screen updates)
+
+Plan:
+
+1. Runtime VT screen state
+   - Keep per-window incremental VT state (not full-buffer reparsing)
+   - Track SGR style and cursor state
+2. Styled frame protocol
+   - Add `frame-styled` payload with line segments (`text`, `fg`, `bg`, attributes)
+3. TUI renderer upgrade
+   - Render styled segments directly in terminal panel
+   - Keep plain text fallback for compatibility
+4. Recovery + fallback
+   - Preserve stream-first flow and HTTP fallback safety
+
+Current status:
+
+- Implemented:
+  - `VtScreen` incremental terminal state engine (`src/runtime/vt-screen.ts`)
+  - `PtyRuntime.getWindowFrame` exposing styled frames
+  - Stream protocol + client handling for `frame-styled`
+  - TUI styled segment rendering path
+- Remaining:
+  - Higher-fidelity VT coverage parity (additional escape-sequence handling)
+  - Feature-flagged patch/diff reintroduction for final CPU/latency optimization
+
 
 ## 6) Data Model Changes
 

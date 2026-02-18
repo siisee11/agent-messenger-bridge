@@ -21,6 +21,7 @@ import { attachCommand } from './attach.js';
 import { newCommand } from './new.js';
 import { stopCommand } from './stop.js';
 import { renderTerminalSnapshot } from '../../capture/parser.js';
+import type { TerminalStyledLine } from '../../runtime/vt-screen.js';
 
 type RuntimeWindowPayload = {
   windowId: string;
@@ -252,7 +253,8 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   const runtimeBufferCache = new Map<string, string>();
   const runtimeFrameCache = new Map<string, string>();
   const runtimeFrameLines = new Map<string, string[]>();
-  const runtimeFrameListeners = new Set<(frame: { sessionName: string; windowName: string; output: string }) => void>();
+  const runtimeStyledCache = new Map<string, TerminalStyledLine[]>();
+  const runtimeFrameListeners = new Set<(frame: { sessionName: string; windowName: string; output: string; styled?: TerminalStyledLine[] }) => void>();
   const streamSubscriptions = new Map<string, { cols: number; rows: number; subscribedAt: number }>();
 
   const setTransportStatus = (next: Partial<RuntimeTransportStatus>) => {
@@ -276,6 +278,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       const output = frame.lines.join('\n');
       runtimeFrameLines.set(frame.windowId, frame.lines.slice());
       runtimeFrameCache.set(frame.windowId, output);
+      runtimeStyledCache.delete(frame.windowId);
       const parsed = splitWindowId(frame.windowId);
       if (parsed) {
         for (const listener of runtimeFrameListeners) {
@@ -283,6 +286,26 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             sessionName: parsed.sessionName,
             windowName: parsed.windowName,
             output,
+            styled: undefined,
+          });
+        }
+      }
+      runtimeSupported = true;
+    },
+    onFrameStyled: (frame) => {
+      const output = frame.lines
+        .map((line) => line.segments.map((seg) => seg.text).join(''))
+        .join('\n');
+      runtimeFrameCache.set(frame.windowId, output);
+      runtimeStyledCache.set(frame.windowId, frame.lines);
+      const parsed = splitWindowId(frame.windowId);
+      if (parsed) {
+        for (const listener of runtimeFrameListeners) {
+          listener({
+            sessionName: parsed.sessionName,
+            windowName: parsed.windowName,
+            output,
+            styled: frame.lines,
           });
         }
       }
@@ -301,6 +324,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       const output = next.join('\n');
       runtimeFrameLines.set(patch.windowId, next);
       runtimeFrameCache.set(patch.windowId, output);
+      runtimeStyledCache.delete(patch.windowId);
 
       const parsed = splitWindowId(patch.windowId);
       if (parsed) {
@@ -309,6 +333,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             sessionName: parsed.sessionName,
             windowName: parsed.windowName,
             output,
+            styled: undefined,
           });
         }
       }
@@ -317,6 +342,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     onWindowExit: (event) => {
       runtimeFrameCache.delete(event.windowId);
       runtimeFrameLines.delete(event.windowId);
+      runtimeStyledCache.delete(event.windowId);
       streamSubscriptions.delete(event.windowId);
       const parsed = splitWindowId(event.windowId);
       if (parsed) {
@@ -325,6 +351,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
             sessionName: parsed.sessionName,
             windowName: parsed.windowName,
             output: '',
+            styled: undefined,
           });
         }
       }
@@ -620,7 +647,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     ensureStreamSubscribed(windowId, width, height);
   };
 
-  const registerRuntimeFrameListener = (listener: (frame: { sessionName: string; windowName: string; output: string }) => void): (() => void) => {
+  const registerRuntimeFrameListener = (listener: (frame: { sessionName: string; windowName: string; output: string; styled?: TerminalStyledLine[] }) => void): (() => void) => {
     runtimeFrameListeners.add(listener);
     return () => {
       runtimeFrameListeners.delete(listener);
@@ -1089,7 +1116,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       onRuntimeResize: async (sessionName: string, windowName: string, width: number, height: number) => {
         await sendRuntimeResize(sessionName, windowName, width, height);
       },
-      onRuntimeFrame: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => {
+      onRuntimeFrame: (listener: (frame: { sessionName: string; windowName: string; output: string; styled?: TerminalStyledLine[] }) => void) => {
         return registerRuntimeFrameListener(listener);
       },
       getRuntimeStatus: async () => {

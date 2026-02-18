@@ -46,6 +46,8 @@ Runtime selection:
   - Receives agent events and runtime control requests
 - `RuntimeStreamServer` (`src/runtime/stream-server.ts`)
   - Provides low-latency local stream transport for TUI <-> daemon runtime I/O
+- `VtScreen` (`src/runtime/vt-screen.ts`)
+  - Incremental VT state engine for tmux-like terminal fidelity in PTY mode
 - `BridgeProjectBootstrap` (`src/bridge/project-bootstrap.ts`)
   - Rebuilds channel mappings from persisted state
 - `StateManager` (`src/state/index.ts`)
@@ -102,6 +104,7 @@ Implemented in `RuntimeStreamServer` + `RuntimeStreamClient`:
   - `hello`, `subscribe`, `focus`, `input(bytesBase64)`, `resize`
 - Daemon -> client messages:
   - `frame` (current screen lines)
+  - `frame-styled` (styled terminal segments with color/attributes)
   - `window-exit` (window disappeared/exited)
   - `error`
 
@@ -132,6 +135,7 @@ Current TUI (`bin/tui.tsx`) supports:
 - `Ctrl+1..9` quick switch
 - Active window metadata display
 - Active window output via pushed runtime frames
+- Styled terminal segment rendering (`frame-styled`) with text fallback
 - Runtime input mode with raw key forwarding (`Enter` mapped as carriage return)
 - Runtime transport status (stream vs fallback) in sidebar
 - Command palette/flow with runtime-aware attach behavior
