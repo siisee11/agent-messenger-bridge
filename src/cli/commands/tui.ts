@@ -47,6 +47,14 @@ type HttpJsonResult = {
   body: string;
 };
 
+type RuntimeTransportStatus = {
+  mode: 'stream' | 'http-fallback';
+  connected: boolean;
+  fallback: boolean;
+  detail: string;
+  lastError?: string;
+};
+
 function requestRuntimeApi(params: {
   port: number;
   method: 'GET' | 'POST';
@@ -234,12 +242,25 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
   let keepChannelOnStop = getConfigValue('keepChannelOnStop') === true;
   let runtimeSupported: boolean | undefined;
   let runtimeWindowsCache: RuntimeWindowsPayload | null = null;
+  let transportStatus: RuntimeTransportStatus = {
+    mode: 'http-fallback',
+    connected: false,
+    fallback: true,
+    detail: 'stream unavailable',
+  };
   const runtimeBufferOffsets = new Map<string, number>();
   const runtimeBufferCache = new Map<string, string>();
   const runtimeFrameCache = new Map<string, string>();
   const runtimeFrameLines = new Map<string, string[]>();
   const runtimeFrameListeners = new Set<(frame: { sessionName: string; windowName: string; output: string }) => void>();
-  const streamSubscriptions = new Map<string, { cols: number; rows: number }>();
+  const streamSubscriptions = new Map<string, { cols: number; rows: number; subscribedAt: number }>();
+
+  const setTransportStatus = (next: Partial<RuntimeTransportStatus>) => {
+    transportStatus = {
+      ...transportStatus,
+      ...next,
+    };
+  };
 
   const splitWindowId = (windowId: string): { sessionName: string; windowName: string } | null => {
     const idx = windowId.indexOf(':');
@@ -293,8 +314,66 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       }
       runtimeSupported = true;
     },
+    onWindowExit: (event) => {
+      runtimeFrameCache.delete(event.windowId);
+      runtimeFrameLines.delete(event.windowId);
+      streamSubscriptions.delete(event.windowId);
+      const parsed = splitWindowId(event.windowId);
+      if (parsed) {
+        for (const listener of runtimeFrameListeners) {
+          listener({
+            sessionName: parsed.sessionName,
+            windowName: parsed.windowName,
+            output: '',
+          });
+        }
+      }
+      setTransportStatus({
+        mode: 'stream',
+        connected: true,
+        fallback: false,
+        detail: `window exited: ${event.windowId}`,
+      });
+    },
+    onError: (message) => {
+      setTransportStatus({
+        mode: 'http-fallback',
+        connected: false,
+        fallback: true,
+        detail: 'stream error, using fallback',
+        lastError: message,
+      });
+    },
+    onStateChange: (state) => {
+      if (state === 'connected') {
+        streamSubscriptions.clear();
+        setTransportStatus({
+          mode: 'stream',
+          connected: true,
+          fallback: false,
+          detail: 'stream connected',
+        });
+      } else {
+        runtimeStreamConnected = false;
+        streamSubscriptions.clear();
+        setTransportStatus({
+          mode: 'http-fallback',
+          connected: false,
+          fallback: true,
+          detail: 'stream disconnected, using fallback',
+        });
+      }
+    },
   });
   let runtimeStreamConnected = await streamClient.connect();
+  if (runtimeStreamConnected) {
+    setTransportStatus({
+      mode: 'stream',
+      connected: true,
+      fallback: false,
+      detail: 'stream connected',
+    });
+  }
   let lastStreamConnectAttemptAt = Date.now();
 
   const ensureStreamConnected = async (): Promise<boolean> => {
@@ -307,6 +386,21 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     }
     lastStreamConnectAttemptAt = now;
     runtimeStreamConnected = await streamClient.connect().catch(() => false);
+    if (runtimeStreamConnected) {
+      setTransportStatus({
+        mode: 'stream',
+        connected: true,
+        fallback: false,
+        detail: 'stream connected',
+      });
+    } else {
+      setTransportStatus({
+        mode: 'http-fallback',
+        connected: false,
+        fallback: true,
+        detail: 'stream unavailable, using fallback',
+      });
+    }
     return runtimeStreamConnected;
   };
 
@@ -317,7 +411,7 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     const prev = streamSubscriptions.get(windowId);
     if (prev && prev.cols === cols && prev.rows === rows) return;
     streamClient.subscribe(windowId, cols, rows);
-    streamSubscriptions.set(windowId, { cols, rows });
+    streamSubscriptions.set(windowId, { cols, rows, subscribedAt: Date.now() });
   };
 
   const fetchRuntimeWindows = async (): Promise<RuntimeWindowsPayload | null> => {
@@ -418,7 +512,20 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       ensureStreamSubscribed(windowId, width, height);
       const frame = runtimeFrameCache.get(windowId);
       if (frame !== undefined) {
+        setTransportStatus({
+          mode: 'stream',
+          connected: true,
+          fallback: false,
+          detail: 'stream live',
+        });
         return frame;
+      }
+
+      const subscribed = streamSubscriptions.get(windowId);
+      if (subscribed && Date.now() - subscribed.subscribedAt < 1500) {
+        // Stream-first path: avoid immediate HTTP fallback while waiting
+        // for first pushed frame after subscribe/reconnect.
+        return undefined;
       }
     }
 
@@ -436,6 +543,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
           runtimeSupported = false;
           return undefined;
         }
+        setTransportStatus({
+          mode: 'http-fallback',
+          connected: false,
+          fallback: true,
+          detail: `fallback buffer read (status ${result.status})`,
+        });
         return runtimeBufferCache.get(windowId);
       }
 
@@ -447,9 +560,21 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       runtimeBufferCache.set(windowId, trimmed);
       runtimeBufferOffsets.set(windowId, payload.next);
       runtimeSupported = true;
+      setTransportStatus({
+        mode: 'http-fallback',
+        connected: false,
+        fallback: true,
+        detail: 'fallback buffer read',
+      });
       return renderTerminalSnapshot(trimmed, { width, height });
     } catch {
       const raw = runtimeBufferCache.get(windowId);
+      setTransportStatus({
+        mode: 'http-fallback',
+        connected: false,
+        fallback: true,
+        detail: 'fallback buffer cache',
+      });
       return raw ? renderTerminalSnapshot(raw, { width, height }) : raw;
     }
   };
@@ -461,6 +586,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
     const windowId = `${sessionName}:${windowName}`;
     if (runtimeStreamConnected) {
       streamClient.input(windowId, Buffer.from(raw, 'latin1'));
+      setTransportStatus({
+        mode: 'stream',
+        connected: true,
+        fallback: false,
+        detail: 'stream input',
+      });
       return;
     }
     await requestRuntimeApi({
@@ -473,6 +604,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         submit: false,
       },
     }).catch(() => ({ status: 0, body: '' }));
+    setTransportStatus({
+      mode: 'http-fallback',
+      connected: false,
+      fallback: true,
+      detail: 'fallback input',
+    });
   };
 
   const sendRuntimeResize = async (sessionName: string, windowName: string, width: number, height: number): Promise<void> => {
@@ -751,6 +888,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       if (focusedWindowId) {
         if (runtimeStreamConnected) {
           streamClient.input(focusedWindowId, Buffer.from(`${command}\r`, 'latin1'));
+          setTransportStatus({
+            mode: 'stream',
+            connected: true,
+            fallback: false,
+            detail: 'stream input',
+          });
           append(`→ sent to ${focusedWindowId}`);
           return false;
         }
@@ -767,6 +910,12 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
         }).catch(() => ({ status: 0, body: '' }));
 
         if (sent.status === 200) {
+          setTransportStatus({
+            mode: 'http-fallback',
+            connected: false,
+            fallback: true,
+            detail: 'fallback input',
+          });
           append(`→ sent to ${focusedWindowId}`);
           return false;
         }
@@ -942,6 +1091,16 @@ export async function tuiCommand(options: TmuxCliOptions): Promise<void> {
       },
       onRuntimeFrame: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => {
         return registerRuntimeFrameListener(listener);
+      },
+      getRuntimeStatus: async () => {
+        await ensureStreamConnected();
+        return {
+          mode: transportStatus.mode,
+          connected: transportStatus.connected,
+          fallback: transportStatus.fallback,
+          detail: transportStatus.detail,
+          lastError: transportStatus.lastError,
+        };
       },
     });
   } finally {

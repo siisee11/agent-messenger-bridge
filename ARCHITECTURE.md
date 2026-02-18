@@ -44,6 +44,8 @@ Runtime selection:
   - Handles OpenCode type-then-enter submission behavior
 - `BridgeHookServer` (`src/bridge/hook-server.ts`)
   - Receives agent events and runtime control requests
+- `RuntimeStreamServer` (`src/runtime/stream-server.ts`)
+  - Provides low-latency local stream transport for TUI <-> daemon runtime I/O
 - `BridgeProjectBootstrap` (`src/bridge/project-bootstrap.ts`)
   - Rebuilds channel mappings from persisted state
 - `StateManager` (`src/state/index.ts`)
@@ -66,9 +68,10 @@ Runtime selection:
 
 ### 4.3 TUI Multiplexer Control
 
-1. TUI polls daemon runtime endpoints
-2. TUI quick-switches windows with `Ctrl+1..9`
-3. TUI sends direct input to active runtime window when focused
+1. TUI connects to daemon runtime stream (`~/.discode/runtime.sock`)
+2. TUI subscribes to active window frames and receives push updates
+3. TUI sends raw key input + resize events over stream
+4. HTTP runtime endpoints are used as fallback-only when stream is unavailable
 
 
 ## 5. Runtime Control Plane (Daemon HTTP)
@@ -89,6 +92,20 @@ Runtime endpoints:
 - `POST /runtime/ensure` - ensure project instance window exists (used by `discode new` in pty mode)
 
 Request body size is limited (413 for oversized payload).
+
+## 5.1 Runtime Stream Plane (UDS)
+
+Implemented in `RuntimeStreamServer` + `RuntimeStreamClient`:
+
+- Socket: `~/.discode/runtime.sock` (Unix), `\\.\pipe\discode-runtime` (Windows)
+- Client -> daemon messages:
+  - `hello`, `subscribe`, `focus`, `input(bytesBase64)`, `resize`
+- Daemon -> client messages:
+  - `frame` (current screen lines)
+  - `window-exit` (window disappeared/exited)
+  - `error`
+
+This stream path is the primary PTY runtime I/O channel.
 
 
 ## 6. CLI Behavior by Runtime Mode
@@ -111,10 +128,12 @@ Relevant commands now branch by runtime mode:
 
 Current TUI (`bin/tui.tsx`) supports:
 
-- Project/window list refresh polling
+- Stream-first terminal rendering with HTTP fallback
 - `Ctrl+1..9` quick switch
 - Active window metadata display
-- Active window output snippet via runtime buffer polling
+- Active window output via pushed runtime frames
+- Runtime input mode with raw key forwarding (`Enter` mapped as carriage return)
+- Runtime transport status (stream vs fallback) in sidebar
 - Command palette/flow with runtime-aware attach behavior
 
 
@@ -159,6 +178,7 @@ Note: field names still include `tmux*` for compatibility, even when running pty
 ## 10. Operational Notes
 
 - Daemon is global singleton (pid/log in `~/.discode`)
+- In `pty` mode, daemon startup restores missing runtime windows from persisted project state
 - If runtime/config code changes, restart daemon to apply:
 
 ```bash

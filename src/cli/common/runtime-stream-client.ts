@@ -17,9 +17,17 @@ type PatchMessage = {
   ops: Array<{ index: number; line: string }>;
 };
 
+type WindowExitMessage = {
+  type: 'window-exit';
+  windowId: string;
+  code?: number | null;
+  signal?: string | null;
+};
+
 type RuntimeStreamMessage =
   | FrameMessage
   | PatchMessage
+  | WindowExitMessage
   | { type: 'hello'; ok: boolean }
   | { type: 'focus'; ok: boolean; windowId: string }
   | { type: 'input'; ok: boolean; windowId: string }
@@ -28,7 +36,9 @@ type RuntimeStreamMessage =
 type RuntimeStreamClientHandlers = {
   onFrame?: (frame: FrameMessage) => void;
   onPatch?: (patch: PatchMessage) => void;
+  onWindowExit?: (event: WindowExitMessage) => void;
   onError?: (error: string) => void;
+  onStateChange?: (state: 'connected' | 'disconnected') => void;
 };
 
 export class RuntimeStreamClient {
@@ -60,6 +70,7 @@ export class RuntimeStreamClient {
       const socket = createConnection(this.socketPath, () => {
         this.socket = socket;
         this.connected = true;
+        this.handlers.onStateChange?.('connected');
         this.send({ type: 'hello', version: 1 });
         finish(true);
       });
@@ -86,6 +97,7 @@ export class RuntimeStreamClient {
       socket.on('error', () => {
         this.connected = false;
         this.socket = undefined;
+        this.handlers.onStateChange?.('disconnected');
         this.handlers.onError?.('runtime stream socket error');
         finish(false);
       });
@@ -97,6 +109,7 @@ export class RuntimeStreamClient {
         }
         this.connected = false;
         this.socket = undefined;
+        this.handlers.onStateChange?.('disconnected');
       });
     });
   }
@@ -105,6 +118,7 @@ export class RuntimeStreamClient {
     this.socket?.destroy();
     this.socket = undefined;
     this.connected = false;
+    this.handlers.onStateChange?.('disconnected');
   }
 
   isConnected(): boolean {
@@ -155,6 +169,10 @@ export class RuntimeStreamClient {
     }
     if (msg.type === 'patch') {
       this.handlers.onPatch?.(msg);
+      return;
+    }
+    if (msg.type === 'window-exit') {
+      this.handlers.onWindowExit?.(msg);
       return;
     }
     if (msg.type === 'error') {

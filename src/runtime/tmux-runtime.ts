@@ -74,6 +74,10 @@ export class TmuxRuntime implements AgentRuntime {
     }
   }
 
+  resizeWindow(_sessionName: string, _windowName: string, _cols: number, _rows: number): void {
+    // tmux runtime currently relies on terminal/tmux native sizing behavior.
+  }
+
   dispose(): void {
     // tmux-backed runtime does not own process lifecycles directly.
   }

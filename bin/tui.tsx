@@ -43,6 +43,21 @@ type TuiInput = {
   onRuntimeKey?: (sessionName: string, windowName: string, raw: string) => Promise<void>;
   onRuntimeResize?: (sessionName: string, windowName: string, width: number, height: number) => Promise<void> | void;
   onRuntimeFrame?: (listener: (frame: { sessionName: string; windowName: string; output: string }) => void) => () => void;
+  getRuntimeStatus?: () =>
+    | {
+      mode: 'stream' | 'http-fallback';
+      connected: boolean;
+      fallback: boolean;
+      detail: string;
+      lastError?: string;
+    }
+    | Promise<{
+      mode: 'stream' | 'http-fallback';
+      connected: boolean;
+      fallback: boolean;
+      detail: string;
+      lastError?: string;
+    }>;
   getCurrentWindowOutput?: (sessionName: string, windowName: string, width?: number, height?: number) => Promise<string | undefined>;
   getProjects: () =>
     | Array<{
@@ -114,6 +129,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
   const [currentWindow, setCurrentWindow] = createSignal(props.input.currentWindow);
   const [windowOutput, setWindowOutput] = createSignal('');
   const [runtimeInputMode, setRuntimeInputMode] = createSignal(true);
+  const [runtimeStatusLine, setRuntimeStatusLine] = createSignal('transport: stream');
   const [projects, setProjects] = createSignal<Array<{
     project: string;
     session: string;
@@ -622,6 +638,17 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       const next = await props.input.getProjects();
       if (stopped) return;
       setProjects(next);
+
+      if (props.input.getRuntimeStatus) {
+        const status = await props.input.getRuntimeStatus();
+        if (stopped || !status) return;
+        const suffix = status.lastError ? ` (${status.lastError})` : '';
+        const line =
+          status.mode === 'stream' && status.connected
+            ? `transport: stream (${status.detail})`
+            : `transport: http fallback (${status.detail})${suffix}`;
+        setRuntimeStatusLine(line.length > 52 ? `${line.slice(0, 49)}...` : line);
+      }
     };
 
     const syncOutput = async () => {
@@ -700,6 +727,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
             <text fg={palette.muted}>{TUI_VERSION_LABEL}</text>
           </box>
           <text fg={runtimeInputMode() ? palette.primary : palette.muted}>{runtimeInputMode() ? 'mode: runtime input' : 'mode: command input'}</text>
+          <text fg={palette.muted}>{runtimeStatusLine()}</text>
           <text fg={palette.muted}>toggle: Ctrl+g</text>
           <text fg={palette.muted}>window: Ctrl+1..9</text>
           <text fg={palette.muted}>commands: / + Enter</text>

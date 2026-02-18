@@ -21,6 +21,7 @@ type NodePtyModule = {
     pid: number;
     write: (data: string) => void;
     kill: (signal?: string) => void;
+    resize?: (cols: number, rows: number) => void;
     onData: (cb: (data: string) => void) => void;
     onExit: (cb: (event: { exitCode: number; signal?: number }) => void) => void;
   };
@@ -225,6 +226,23 @@ export class PtyRuntime implements AgentRuntime {
     }
     if (!record.process) return false;
     return record.process.kill(signal);
+  }
+
+  resizeWindow(sessionName: string, windowName: string, cols: number, rows: number): void {
+    const key = this.windowKey(sessionName, windowName);
+    const record = this.windows.get(key);
+    if (!record) return;
+
+    const safeCols = Math.max(30, Math.min(240, Math.floor(cols)));
+    const safeRows = Math.max(10, Math.min(120, Math.floor(rows)));
+
+    if (record.pty?.resize) {
+      try {
+        record.pty.resize(safeCols, safeRows);
+      } catch {
+        // best effort
+      }
+    }
   }
 
   listWindows(sessionName?: string): RuntimeWindowSnapshot[] {

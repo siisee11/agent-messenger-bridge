@@ -16,6 +16,7 @@ type RuntimeStreamClientState = {
   lastSnapshot: string;
   lastLines: string[];
   lastEmitAt: number;
+  windowMissingNotified: boolean;
 };
 
 type RuntimeStreamInbound =
@@ -49,6 +50,7 @@ export class RuntimeStreamServer {
         lastSnapshot: '',
         lastLines: [],
         lastEmitAt: 0,
+        windowMissingNotified: false,
       };
       this.clients.add(state);
 
@@ -124,6 +126,7 @@ export class RuntimeStreamServer {
         client.lastBufferLength = -1;
         client.lastSnapshot = '';
         client.lastLines = [];
+        client.windowMissingNotified = false;
         this.flushClientFrame(client);
         return;
       }
@@ -136,6 +139,7 @@ export class RuntimeStreamServer {
         client.lastBufferLength = -1;
         client.lastSnapshot = '';
         client.lastLines = [];
+        client.windowMissingNotified = false;
         this.send(client, { type: 'focus', ok: true, windowId: message.windowId });
         this.flushClientFrame(client);
         return;
@@ -164,8 +168,13 @@ export class RuntimeStreamServer {
         client.windowId = message.windowId;
         client.cols = clampNumber(message.cols, 30, 240, client.cols);
         client.rows = clampNumber(message.rows, 10, 120, client.rows);
+        const parsed = parseWindowId(message.windowId);
+        if (parsed) {
+          this.runtime.resizeWindow?.(parsed.sessionName, parsed.windowName, client.cols, client.rows);
+        }
         client.lastSnapshot = '';
         client.lastLines = [];
+        client.windowMissingNotified = false;
         this.flushClientFrame(client);
         return;
       }
@@ -186,7 +195,19 @@ export class RuntimeStreamServer {
 
     const parsed = parseWindowId(client.windowId);
     if (!parsed) return;
-    if (!this.runtime.windowExists(parsed.sessionName, parsed.windowName)) return;
+    if (!this.runtime.windowExists(parsed.sessionName, parsed.windowName)) {
+      if (!client.windowMissingNotified) {
+        this.send(client, {
+          type: 'window-exit',
+          windowId: client.windowId,
+          code: null,
+          signal: 'missing',
+        });
+        client.windowMissingNotified = true;
+      }
+      return;
+    }
+    client.windowMissingNotified = false;
 
     const raw = this.runtime.getWindowBuffer(parsed.sessionName, parsed.windowName);
     if (raw.length === client.lastBufferLength) return;

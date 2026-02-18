@@ -123,8 +123,10 @@ Implementation notes:
   - Runtime mode config (`tmux|pty`) added and wired into bridge runtime selection
   - CLI commands (`new`, `attach`, `start`, `list`, `status`, `stop`) now branch by runtime mode
   - Stabilization: runtime dispose on bridge stop + request-size guard coverage tests
+  - Stream-first PTY path implemented (UDS server/client, frame push, resize/input over stream)
+  - Daemon start now restores missing PTY runtime windows from state
 - Remaining:
-  - (none in current scoped plan)
+  - Low-latency optimization final pass (safe patch/diff reintroduction behind feature flag)
 
 
 ## 5.3 Daemon control API
@@ -250,6 +252,17 @@ Design direction:
 - `Ctrl+1..9` window switch updates terminal view immediately
 - No dependence on `/runtime/buffer` polling in normal PTY mode
 - Existing tmux mode behavior remains unchanged
+
+### 5.7.6 Progress snapshot
+
+- Done:
+  - UDS transport (`~/.discode/runtime.sock`) added and integrated into daemon/TUI
+  - Stream protocol supports `hello`, `subscribe`, `focus`, `input`, `resize`, `frame`, `window-exit`, `error`
+  - TUI runtime path is stream-first for input/output; HTTP path is fallback-only
+  - Stream reconnect/disconnect handling and runtime transport status visualization added
+  - Tests added for stream client/server recovery scenarios
+- Remaining:
+  - Performance-tuned patch/diff streaming (feature-flagged) for extra CPU/latency gains
 
 
 ## 6) Data Model Changes
