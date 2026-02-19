@@ -336,8 +336,20 @@ export async function main() {
   await bridge.start();
 }
 
+function isDirectExecution(): boolean {
+  // Bun compile/runtime provides import.meta.main; rely on it when available.
+  const bunMain = (import.meta as ImportMeta & { main?: boolean }).main;
+  if (typeof bunMain === 'boolean') {
+    return bunMain;
+  }
+
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  return import.meta.url === `file://${argv1}`;
+}
+
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectExecution()) {
   main().catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);
