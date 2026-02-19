@@ -15,7 +15,7 @@
 
 import { execSync, execFileSync } from 'child_process';
 import { existsSync, readFileSync, statSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
 import { homedir, tmpdir } from 'os';
 import { FULL_IMAGE_TAG, ensureImage } from './image.js';
 
@@ -402,6 +402,105 @@ export function execInContainer(containerId: string, command: string, socketPath
 
 function escapeForSh(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+const BRIDGE_SCRIPT_FILENAME = 'chrome-mcp-bridge.cjs';
+
+/**
+ * Resolve the host-side path to the chrome-mcp-bridge.cjs script.
+ * Uses the same candidate-search pattern as the plugin installers.
+ */
+function resolveBridgeScriptPath(): string | null {
+  const execDir = dirname(process.execPath);
+  const candidates = [
+    join(import.meta.dirname, BRIDGE_SCRIPT_FILENAME),                     // source layout: src/container/
+    join(import.meta.dirname, 'container', BRIDGE_SCRIPT_FILENAME),        // bundled chunk in dist/
+    join(import.meta.dirname, '../container', BRIDGE_SCRIPT_FILENAME),     // bundled entry in dist/src/
+    join(execDir, '..', 'resources', BRIDGE_SCRIPT_FILENAME),              // compiled binary
+  ];
+  return candidates.find(p => existsSync(p)) ?? null;
+}
+
+/**
+ * Inject the Chrome MCP bridge into a container.
+ *
+ * 1. Copies chrome-mcp-bridge.cjs to /tmp/ inside the container
+ * 2. Reads host ~/.claude.json, adds claude-in-chrome MCP server config,
+ *    and overwrites /home/coder/.claude.json inside the container.
+ *
+ * Must be called AFTER injectCredentials() so the base .claude.json exists.
+ */
+export function injectChromeMcpBridge(
+  containerId: string,
+  proxyPort: number,
+  socketPath?: string,
+): boolean {
+  const sock = socketPath || findDockerSocket();
+  if (!sock) return false;
+
+  const bridgeScriptPath = resolveBridgeScriptPath();
+  if (!bridgeScriptPath) {
+    console.warn('Chrome MCP bridge script not found; skipping injection');
+    return false;
+  }
+
+  const copyToContainer = (content: string, containerPath: string): void => {
+    const tmp = join(tmpdir(), `discode-inject-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      writeFileSync(tmp, content);
+      execSync(
+        `docker -H unix://${sock} cp ${tmp} ${containerId}:${containerPath}`,
+        { timeout: 10_000 },
+      );
+    } finally {
+      try { unlinkSync(tmp); } catch { /* ignore */ }
+    }
+  };
+
+  try {
+    // 1. Copy bridge script into container
+    execSync(
+      `docker -H unix://${sock} cp ${bridgeScriptPath} ${containerId}:/tmp/${BRIDGE_SCRIPT_FILENAME}`,
+      { timeout: 10_000 },
+    );
+
+    // 2. Read existing .claude.json (may have been injected by injectCredentials)
+    //    and merge MCP server config.
+    let claudeJson: Record<string, any> = {};
+    const claudeJsonPath = join(homedir(), '.claude.json');
+    if (existsSync(claudeJsonPath)) {
+      try {
+        claudeJson = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
+      } catch {
+        // Malformed JSON — start fresh
+      }
+    }
+
+    if (!claudeJson.mcpServers) {
+      claudeJson.mcpServers = {};
+    }
+    claudeJson.mcpServers['claude-in-chrome'] = {
+      type: 'stdio',
+      command: 'node',
+      args: [`/tmp/${BRIDGE_SCRIPT_FILENAME}`],
+      env: {
+        CHROME_MCP_HOST: 'host.docker.internal',
+        CHROME_MCP_PORT: String(proxyPort),
+      },
+    };
+
+    copyToContainer(
+      JSON.stringify(claudeJson, null, 2),
+      '/home/coder/.claude.json',
+    );
+
+    return true;
+  } catch (error) {
+    console.warn(
+      `Failed to inject Chrome MCP bridge: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
 }
 
 export { WORKSPACE_DIR };

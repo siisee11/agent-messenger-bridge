@@ -125,6 +125,7 @@ for (const target of targets) {
   cpSync(join(root, 'src', 'claude', 'plugin'), join(resourcesDir, 'claude-plugin'), { recursive: true });
   cpSync(join(root, 'src', 'opencode', 'plugin'), join(resourcesDir, 'opencode-plugin'), { recursive: true });
   cpSync(join(root, 'src', 'gemini', 'hook'), join(resourcesDir, 'gemini-hook'), { recursive: true });
+  cpSync(join(root, 'src', 'container', 'chrome-mcp-bridge.cjs'), join(resourcesDir, 'chrome-mcp-bridge.cjs'));
 
   binaries[packageName] = pkgJson.version;
 }

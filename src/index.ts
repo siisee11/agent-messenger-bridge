@@ -30,6 +30,8 @@ import {
   createContainer,
   buildDockerStartCommand,
   injectCredentials,
+  injectChromeMcpBridge,
+  ChromeMcpProxy,
   WORKSPACE_DIR,
 } from './container/index.js';
 import { ContainerSync } from './container/sync.js';
@@ -62,6 +64,8 @@ export class AgentBridge {
   private bridgeConfig: BridgeConfig;
   /** Active container sync instances keyed by `projectName#instanceId`. */
   private containerSyncs = new Map<string, ContainerSync>();
+  /** TCP proxy bridging Chrome extension socket to containers. */
+  private chromeMcpProxy: ChromeMcpProxy | null = null;
 
   constructor(deps?: AgentBridgeDeps) {
     this.bridgeConfig = deps?.config || defaultConfig;
@@ -138,6 +142,15 @@ export class AgentBridge {
 
     await this.messaging.connect();
     console.log('✅ Messaging client connected');
+
+    // Start Chrome MCP proxy if a Chrome extension socket exists.
+    // This bridges the host's Chrome extension Unix socket to TCP
+    // so containers can reach it via host.docker.internal.
+    const proxy = new ChromeMcpProxy({ port: (this.bridgeConfig.hookServerPort || 18470) + 1 });
+    if (await proxy.start()) {
+      this.chromeMcpProxy = proxy;
+      console.log(`🌐 Chrome MCP proxy listening on port ${proxy.getPort()}`);
+    }
 
     this.projectBootstrap.bootstrapProjects();
     this.restoreRuntimeWindowsIfNeeded();
@@ -268,6 +281,13 @@ export class AgentBridge {
       // Inject Claude credentials into the container
       injectCredentials(containerId, socketPath);
 
+      // Always inject Chrome MCP bridge config so the container can reach
+      // the proxy that the daemon runs on hookServerPort + 1.
+      const chromeMcpPort = (this.bridgeConfig.hookServerPort || 18470) + 1;
+      if (injectChromeMcpBridge(containerId, chromeMcpPort, socketPath)) {
+        console.log('🌐 Injected Chrome MCP bridge into container');
+      }
+
       // The runtime command becomes `docker start -ai <containerId>`
       const dockerStartCmd = buildDockerStartCommand(containerId, socketPath);
 
@@ -345,6 +365,12 @@ export class AgentBridge {
   }
 
   async stop(): Promise<void> {
+    // Stop Chrome MCP proxy
+    if (this.chromeMcpProxy) {
+      this.chromeMcpProxy.stop();
+      this.chromeMcpProxy = null;
+    }
+
     // Stop all container syncs
     for (const [, sync] of this.containerSyncs) {
       sync.stop();

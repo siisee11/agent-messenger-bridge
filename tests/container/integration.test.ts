@@ -15,6 +15,7 @@ const containerMocks = vi.hoisted(() => ({
   createContainer: vi.fn().mockReturnValue('abc123def456'),
   buildDockerStartCommand: vi.fn().mockReturnValue('docker start -ai abc123def456'),
   injectCredentials: vi.fn(),
+  injectChromeMcpBridge: vi.fn().mockReturnValue(false),
   injectFile: vi.fn().mockReturnValue(true),
   containerExists: vi.fn().mockReturnValue(true),
   stopContainer: vi.fn().mockReturnValue(true),
@@ -22,6 +23,12 @@ const containerMocks = vi.hoisted(() => ({
   findDockerSocket: vi.fn().mockReturnValue('/var/run/docker.sock'),
   isContainerRunning: vi.fn().mockReturnValue(true),
   ensureImage: vi.fn(),
+  ChromeMcpProxy: class MockChromeMcpProxy {
+    async start() { return false; }
+    stop() {}
+    isActive() { return false; }
+    getPort() { return 18471; }
+  },
   WORKSPACE_DIR: '/workspace',
   FULL_IMAGE_TAG: 'discode-agent:1',
 }));

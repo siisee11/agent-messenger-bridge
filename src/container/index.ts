@@ -19,8 +19,11 @@ export {
   removeContainer,
   startContainerBackground,
   execInContainer,
+  injectChromeMcpBridge,
   WORKSPACE_DIR,
 } from './manager.js';
 export type { ContainerCreateOptions } from './manager.js';
+export { ChromeMcpProxy } from './chrome-mcp-proxy.js';
+export type { ChromeMcpProxyOptions } from './chrome-mcp-proxy.js';
 export { ContainerSync } from './sync.js';
 export type { ContainerSyncOptions } from './sync.js';
