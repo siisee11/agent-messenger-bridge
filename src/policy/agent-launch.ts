@@ -23,12 +23,39 @@ export function buildAgentLaunchEnv(params: {
   agentType: string;
   instanceId: string;
   permissionAllow: boolean;
+  /** Override hostname for container→host communication. */
+  hostname?: string;
 }): Record<string, string> {
   return {
     AGENT_DISCORD_PROJECT: params.projectName,
     AGENT_DISCORD_PORT: String(params.port),
     AGENT_DISCORD_AGENT: params.agentType,
     AGENT_DISCORD_INSTANCE: params.instanceId,
+    ...(params.hostname ? { AGENT_DISCORD_HOSTNAME: params.hostname } : {}),
+    ...(params.permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
+  };
+}
+
+/**
+ * Build environment variables map for a container-based agent session.
+ *
+ * These are passed as `-e` flags to `docker create` (not shell exports),
+ * so they don't need shell escaping.
+ */
+export function buildContainerEnv(params: {
+  projectName: string;
+  port: number;
+  agentType: string;
+  instanceId: string;
+  permissionAllow: boolean;
+}): Record<string, string> {
+  return {
+    AGENT_DISCORD_PROJECT: params.projectName,
+    AGENT_DISCORD_PORT: String(params.port),
+    AGENT_DISCORD_AGENT: params.agentType,
+    AGENT_DISCORD_INSTANCE: params.instanceId,
+    // Container→host communication via Docker's built-in DNS
+    AGENT_DISCORD_HOSTNAME: 'host.docker.internal',
     ...(params.permissionAllow ? { OPENCODE_PERMISSION: '{"*":"allow"}' } : {}),
   };
 }

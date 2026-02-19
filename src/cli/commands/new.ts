@@ -28,11 +28,14 @@ import { ensureOpencodePermissionChoice } from '../common/opencode-permission.js
 
 export async function newCommand(
   agentArg: string | undefined,
-  options: TmuxCliOptions & { name?: string; attach?: boolean; instance?: string }
+  options: TmuxCliOptions & { name?: string; attach?: boolean; instance?: string; container?: boolean }
 ) {
   try {
     validateConfig();
     const effectiveConfig = applyTmuxCliOverrides(config, options);
+    if (options.container) {
+      effectiveConfig.container = { enabled: true, ...effectiveConfig.container };
+    }
     const runtimeMode = effectiveConfig.runtimeMode || 'tmux';
     if (runtimeMode === 'tmux') {
       ensureTmuxInstalled();

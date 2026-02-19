@@ -1,4 +1,13 @@
-import { stripAnsi, cleanCapture, splitForDiscord, stripOuterCodeblock, stripFilePaths } from '../../src/capture/parser.js';
+import {
+  stripAnsi,
+  cleanCapture,
+  splitForDiscord,
+  splitForSlack,
+  stripOuterCodeblock,
+  stripFilePaths,
+  extractFilePaths,
+  renderTerminalSnapshot,
+} from '../../src/capture/parser.js';
 
 describe('stripAnsi', () => {
   it('returns plain text unchanged', () => {
@@ -300,5 +309,197 @@ describe('stripFilePaths', () => {
     const text = 'See /tmp/f.png and also /tmp/f.png';
     const result = stripFilePaths(text, ['/tmp/f.png']);
     expect(result).toBe('See  and also ');
+  });
+});
+
+describe('extractFilePaths', () => {
+  it('returns empty array for text without paths', () => {
+    expect(extractFilePaths('hello world')).toEqual([]);
+  });
+
+  it('extracts single absolute path', () => {
+    const text = 'I saved the image to /home/user/output.png for you.';
+    expect(extractFilePaths(text)).toEqual(['/home/user/output.png']);
+  });
+
+  it('extracts multiple paths', () => {
+    const text = 'Created /tmp/a.png and /tmp/b.pdf';
+    const paths = extractFilePaths(text);
+    expect(paths).toContain('/tmp/a.png');
+    expect(paths).toContain('/tmp/b.pdf');
+  });
+
+  it('deduplicates paths', () => {
+    const text = 'See /tmp/file.png and also /tmp/file.png again';
+    expect(extractFilePaths(text)).toEqual(['/tmp/file.png']);
+  });
+
+  it('extracts backtick-wrapped path', () => {
+    const text = 'Generated: `/tmp/output.png`';
+    expect(extractFilePaths(text)).toEqual(['/tmp/output.png']);
+  });
+
+  it('extracts path from markdown image', () => {
+    const text = '![chart](/home/user/chart.png)';
+    expect(extractFilePaths(text)).toEqual(['/home/user/chart.png']);
+  });
+
+  it('ignores relative paths', () => {
+    expect(extractFilePaths('See ./output.png and ../file.pdf')).toEqual([]);
+  });
+
+  it('ignores paths with unknown extensions', () => {
+    expect(extractFilePaths('File at /tmp/data.xyz')).toEqual([]);
+  });
+
+  it('matches known extensions case-insensitively', () => {
+    const text = 'Image at /tmp/photo.PNG';
+    expect(extractFilePaths(text)).toEqual(['/tmp/photo.PNG']);
+  });
+
+  it('extracts various file types', () => {
+    const text = '/tmp/a.jpg /tmp/b.gif /tmp/c.webp /tmp/d.csv /tmp/e.json /tmp/f.txt';
+    const paths = extractFilePaths(text);
+    expect(paths).toHaveLength(6);
+  });
+
+  it('handles path at end of line', () => {
+    const text = 'Saved to /tmp/result.pdf';
+    expect(extractFilePaths(text)).toEqual(['/tmp/result.pdf']);
+  });
+
+  it('handles path on its own line', () => {
+    const text = 'Files:\n/home/user/output.png\nDone.';
+    expect(extractFilePaths(text)).toEqual(['/home/user/output.png']);
+  });
+});
+
+describe('splitForSlack', () => {
+  it('returns single-element array for short text', () => {
+    expect(splitForSlack('hello')).toEqual(['hello']);
+  });
+
+  it('splits at line boundaries under 3900 chars', () => {
+    const lines = Array(200).fill('some longer line for slack testing').join('\n');
+    const result = splitForSlack(lines);
+    expect(result.length).toBeGreaterThan(1);
+    result.forEach(chunk => {
+      expect(chunk.length).toBeLessThanOrEqual(3900);
+    });
+  });
+
+  it('respects custom maxLen parameter', () => {
+    const lines = Array(20).fill('a line of text').join('\n');
+    const result = splitForSlack(lines, 50);
+    result.forEach(chunk => {
+      expect(chunk.length).toBeLessThanOrEqual(50);
+    });
+  });
+
+  it('handles empty string', () => {
+    expect(splitForSlack('')).toEqual(['']);
+  });
+
+  it('preserves codeblock fences across chunks', () => {
+    const yamlLines = Array(200).fill('  key: value').join('\n');
+    const text = 'Config:\n\n```yaml\n' + yamlLines + '\n```';
+    const result = splitForSlack(text, 500);
+    expect(result.length).toBeGreaterThan(1);
+    for (const chunk of result) {
+      const fences = chunk.match(/^```/gm) || [];
+      expect(fences.length % 2).toBe(0);
+    }
+  });
+});
+
+describe('renderTerminalSnapshot', () => {
+  it('renders plain text', () => {
+    const result = renderTerminalSnapshot('Hello World', { width: 30, height: 5 });
+    expect(result.trimEnd()).toBe('Hello World');
+  });
+
+  it('handles newlines', () => {
+    const result = renderTerminalSnapshot('line1\nline2\nline3', { width: 20, height: 5 });
+    const lines = result.split('\n');
+    expect(lines[0].trimEnd()).toBe('line1');
+    expect(lines[1].trimEnd()).toBe('line2');
+    expect(lines[2].trimEnd()).toBe('line3');
+  });
+
+  it('handles carriage return (overwrites line)', () => {
+    const result = renderTerminalSnapshot('hello\rworld', { width: 20, height: 5 });
+    const first = result.split('\n')[0];
+    expect(first.trimEnd()).toBe('world');
+  });
+
+  it('strips SGR color codes (renders text only)', () => {
+    const result = renderTerminalSnapshot('\x1b[31mred\x1b[0m normal', { width: 30, height: 5 });
+    expect(result.trimEnd()).toBe('red normal');
+  });
+
+  it('handles cursor up (CSI A)', () => {
+    const result = renderTerminalSnapshot('aaa\nbbb\x1b[1Aup', { width: 20, height: 5 });
+    const lines = result.split('\n');
+    // After "bbb", cursor is at row 1 col 3. CSI 1A moves up to row 0 col 3, then writes "up"
+    expect(lines[0]).toContain('up');
+  });
+
+  it('handles clear screen (CSI 2J)', () => {
+    const result = renderTerminalSnapshot('old text\x1b[2Jnew', { width: 20, height: 5 });
+    expect(result).toContain('new');
+    expect(result).not.toContain('old');
+  });
+
+  it('handles absolute cursor positioning (CSI H)', () => {
+    const result = renderTerminalSnapshot('\x1b[2;6Hhello', { width: 20, height: 5 });
+    const lines = result.split('\n');
+    // Row 2 (1-based), Col 6 (1-based) → 0-based: row 1, col 5
+    expect(lines[1].indexOf('hello')).toBe(5);
+  });
+
+  it('handles line clear (CSI 0K — clear to end of line)', () => {
+    const result = renderTerminalSnapshot('abcdef\r\x1b[3Cxxx\x1b[0K', { width: 10, height: 5 });
+    const first = result.split('\n')[0];
+    // After writing "abcdef", CR resets to col 0, move right 3, write "xxx", clear to end
+    expect(first.trimEnd()).toBe('abcxxx');
+  });
+
+  it('wraps text at width boundary', () => {
+    // width is clamped to min 20, so use 20 chars to wrap
+    const input = 'abcdefghijklmnopqrstuvwxyz'; // 26 chars > 20
+    const result = renderTerminalSnapshot(input, { width: 20, height: 6 });
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('abcdefghijklmnopqrst');
+    expect(lines[1].trimEnd()).toBe('uvwxyz');
+  });
+
+  it('respects height option (takes last N rows in scrollback mode)', () => {
+    // height is clamped to min 6, so use 6
+    const text = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n');
+    const result = renderTerminalSnapshot(text, { width: 20, height: 6 });
+    const lines = result.split('\n');
+    expect(lines).toHaveLength(6);
+    // Should contain the last 6 lines
+    expect(lines[5].trimEnd()).toBe('line19');
+  });
+
+  it('handles tab characters', () => {
+    const result = renderTerminalSnapshot('a\tb', { width: 20, height: 5 });
+    const first = result.split('\n')[0];
+    // Tab at col 1 expands to 7 spaces (8 - 1%8 = 7), then 'b' at col 8
+    expect(first[0]).toBe('a');
+    expect(first[8]).toBe('b');
+  });
+
+  it('handles backspace', () => {
+    const result = renderTerminalSnapshot('abc\bd', { width: 20, height: 5 });
+    const first = result.split('\n')[0];
+    // After "abc", backspace moves to col 2, then 'd' overwrites 'c'
+    expect(first.trimEnd()).toBe('abd');
+  });
+
+  it('handles empty input', () => {
+    const result = renderTerminalSnapshot('', { width: 20, height: 5 });
+    expect(result.trimEnd()).toBe('');
   });
 });

@@ -9,6 +9,7 @@ import { installAgentIntegration } from '../policy/agent-integration.js';
 import { resolveProjectWindowName } from '../policy/window-naming.js';
 import type { AgentRuntime } from '../runtime/interface.js';
 import { TmuxRuntime } from '../runtime/tmux-runtime.js';
+import { containerExists, buildDockerStartCommand } from '../container/index.js';
 
 export async function setupProjectInstance(params: {
   config: BridgeConfig;
@@ -161,6 +162,24 @@ export async function resumeProjectInstance(params: {
     return {
       windowName,
       restoredWindow: false,
+      infoMessages,
+      warningMessages,
+    };
+  }
+
+  // Container-mode instances: re-attach using docker start -ai
+  if (params.instance.containerMode && params.instance.containerId) {
+    const socketPath = params.config.container?.socketPath;
+    if (containerExists(params.instance.containerId, socketPath)) {
+      const dockerStartCmd = buildDockerStartCommand(params.instance.containerId, socketPath);
+      runtime.startAgentInWindow(fullSessionName, windowName, dockerStartCmd);
+      infoMessages.push(`Restored container runtime window: ${windowName} (container: ${params.instance.containerName || params.instance.containerId})`);
+    } else {
+      warningMessages.push(`Container ${params.instance.containerId} no longer exists. Re-create the instance.`);
+    }
+    return {
+      windowName,
+      restoredWindow: true,
       infoMessages,
       warningMessages,
     };

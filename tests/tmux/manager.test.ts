@@ -249,7 +249,7 @@ describe('TmuxManager', () => {
 
       expect(executor.calls).toHaveLength(3);
       expect(executor.calls[0].command).toContain("tmux list-panes -t 'agent-session:window1'");
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:window1.1'");
+      expect(executor.calls[1].command).toContain("tmux send-keys -l -t 'agent-session:window1.1'");
       expect(executor.calls[1].command).toContain('echo hello');
       expect(executor.calls[2].command).toContain("tmux send-keys -t 'agent-session:window1.1' Enter");
     });
@@ -266,14 +266,14 @@ describe('TmuxManager', () => {
       tmux.sendKeysToWindow('agent-session', 'window1.2', 'echo hello');
 
       expect(executor.calls).toHaveLength(2);
-      expect(executor.calls[0].command).toContain("tmux send-keys -t 'agent-session:window1.2'");
+      expect(executor.calls[0].command).toContain("tmux send-keys -l -t 'agent-session:window1.2'");
     });
 
     it('avoids sending keys to the discode tui pane', () => {
       executor.nextResult = '0\tdiscode-tui\tbun /repo/dist/bin/discode.js tui\n1\tgemini\tgemini';
       tmux.sendKeysToWindow('agent-session', 'window1', 'echo hello');
 
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:window1.1'");
+      expect(executor.calls[1].command).toContain("tmux send-keys -l -t 'agent-session:window1.1'");
     });
 
     it('routes to pane matching agent hint in target name', () => {
@@ -281,7 +281,7 @@ describe('TmuxManager', () => {
         '0\topencode\topencode\n1\tclaude\tclaude\n2\tgemini\tgemini\n3\tdiscode-tui\tbun /repo/dist/bin/discode.js tui';
       tmux.sendKeysToWindow('agent-session', 'myproj-gemini', 'echo hello');
 
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:myproj-gemini.2'");
+      expect(executor.calls[1].command).toContain("tmux send-keys -l -t 'agent-session:myproj-gemini.2'");
       expect(executor.calls[2].command).toContain("tmux send-keys -t 'agent-session:myproj-gemini.2' Enter");
     });
 
@@ -292,7 +292,7 @@ describe('TmuxManager', () => {
       executor.nextResult = '1\n';
       tmux.typeKeysToWindow('agent-session', 'gemini', 'hello');
       expect(executor.calls).toHaveLength(2);
-      expect(executor.calls[1].command).toContain("tmux send-keys -t 'agent-session:gemini.1'");
+      expect(executor.calls[1].command).toContain("tmux send-keys -l -t 'agent-session:gemini.1'");
       expect(executor.calls[1].command).toContain('hello');
       expect(executor.calls[1].command).not.toContain(' Enter');
     });

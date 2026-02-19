@@ -15,6 +15,38 @@ import {
   terminateTmuxPaneProcesses,
 } from '../common/tmux.js';
 import { stopRuntimeWindow } from '../common/runtime-api.js';
+import { stopContainer, removeContainer } from '../../container/index.js';
+import { ContainerSync } from '../../container/sync.js';
+import type { ProjectInstanceState } from '../../types/index.js';
+
+/**
+ * Clean up a container-mode instance: final sync, stop, remove.
+ */
+function cleanupContainerInstance(instance: ProjectInstanceState, projectPath: string, socketPath?: string): void {
+  if (!instance.containerMode || !instance.containerId) return;
+
+  // Final file sync before removal
+  try {
+    const sync = new ContainerSync({
+      containerId: instance.containerId,
+      projectPath,
+      socketPath,
+    });
+    sync.finalSync();
+  } catch {
+    // Non-critical
+  }
+
+  // Stop and remove container
+  const stopped = stopContainer(instance.containerId, socketPath);
+  if (stopped) {
+    console.log(chalk.green(`✅ Container stopped: ${instance.containerName || instance.containerId}`));
+  }
+  const removed = removeContainer(instance.containerId, socketPath);
+  if (removed) {
+    console.log(chalk.green(`✅ Container removed: ${instance.containerName || instance.containerId}`));
+  }
+}
 
 export async function stopCommand(
   projectName: string | undefined,
@@ -52,6 +84,9 @@ export async function stopCommand(
       } else {
         console.log(chalk.gray(`   runtime window ${target} not running`));
       }
+
+      // Clean up container if this is a container-mode instance
+      cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
 
       if (!options.keepChannel && instance.channelId) {
         try {
@@ -91,6 +126,8 @@ export async function stopCommand(
         } else {
           console.log(chalk.gray(`   runtime window ${target} not running`));
         }
+        // Clean up container if applicable
+        cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
       }
 
       if (!options.keepChannel) {
@@ -163,6 +200,9 @@ export async function stopCommand(
       }
     }
 
+    // Clean up container if this is a container-mode instance
+    cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
+
     if (!options.keepChannel && instance.channelId) {
       try {
         const deleted = await deleteChannels([instance.channelId]);
@@ -195,6 +235,13 @@ export async function stopCommand(
   const legacySession = `${prefix}${projectName}`;
   const sessionName = project?.tmuxSession || legacySession;
   const killWindows = !!project && sessionName === sharedSession;
+
+  // Clean up all container-mode instances before killing tmux
+  if (project) {
+    for (const instance of listProjectInstances(project)) {
+      cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
+    }
+  }
 
   if (!killWindows) {
     const forcedKillCount = await terminateTmuxPaneProcesses(sessionName);

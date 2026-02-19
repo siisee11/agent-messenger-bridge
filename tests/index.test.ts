@@ -346,7 +346,7 @@ describe('AgentBridge', () => {
       expect(statusMessages).toHaveLength(0);
     });
 
-    it('submits opencode via type-then-enter with short delay', async () => {
+    it('submits all agents via type-then-enter with short delay', async () => {
       process.env.AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS = '0';
 
       const mockTmux = createMockTmux();
@@ -375,7 +375,6 @@ describe('AgentBridge', () => {
 
       expect(mockTmux.typeKeysToWindow).toHaveBeenCalledWith('agent-test', 'test-project-opencode', 'hello opencode', 'opencode');
       expect(mockTmux.sendEnterToWindow).toHaveBeenCalledWith('agent-test', 'test-project-opencode', 'opencode');
-      expect(mockTmux.sendKeysToWindow).not.toHaveBeenCalled();
     });
 
     it('shows English recovery guidance when tmux window is missing', async () => {

@@ -60,6 +60,15 @@ export interface BridgeConfig {
      */
     permissionMode?: 'allow' | 'default';
   };
+  /** Container isolation settings. */
+  container?: {
+    /** Enable container isolation for agent processes. */
+    enabled: boolean;
+    /** Docker socket path override (auto-detected if omitted). */
+    socketPath?: string;
+    /** File sync interval in milliseconds (default: 30000). */
+    syncIntervalMs?: number;
+  };
 }
 
 export interface ProjectAgents {
@@ -73,6 +82,12 @@ export interface ProjectInstanceState {
   /** Platform-agnostic channel ID (Discord channel ID or Slack channel ID). */
   channelId?: string;
   eventHook?: boolean;
+  /** Whether this instance runs inside a Docker container. */
+  containerMode?: boolean;
+  /** Docker container ID (short hash). */
+  containerId?: string;
+  /** Docker container name for display/logging. */
+  containerName?: string;
 }
 
 export interface ProjectState {

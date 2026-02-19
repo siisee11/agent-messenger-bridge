@@ -55,9 +55,11 @@ var payload = JSON.stringify({
   files: resolved,
 });
 
+var hostname = process.env.AGENT_DISCORD_HOSTNAME || "127.0.0.1";
+
 var req = http.request(
   {
-    hostname: "127.0.0.1",
+    hostname: hostname,
     port: port,
     path: "/send-files",
     method: "POST",

@@ -212,7 +212,8 @@ function readStdin() {
 }
 
 async function postToBridge(port, payload) {
-  await fetch("http://127.0.0.1:" + port + "/opencode-event", {
+  var hostname = process.env.AGENT_DISCORD_HOSTNAME || "127.0.0.1";
+  await fetch("http://" + hostname + ":" + port + "/opencode-event", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),

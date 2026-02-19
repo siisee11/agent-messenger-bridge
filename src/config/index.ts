@@ -22,6 +22,9 @@ export interface StoredConfig {
   slackAppToken?: string;
   messagingPlatform?: 'discord' | 'slack';
   runtimeMode?: 'tmux' | 'pty';
+  containerEnabled?: boolean;
+  containerSocketPath?: string;
+  containerSyncIntervalMs?: number;
 }
 
 export class ConfigManager {
@@ -67,6 +70,10 @@ export class ConfigManager {
       const runtimeModeRaw = storedConfig.runtimeMode || this.env.get('DISCODE_RUNTIME_MODE');
       const runtimeMode = runtimeModeRaw === 'pty' ? 'pty' : 'tmux';
 
+      const containerEnabled = storedConfig.containerEnabled === true || this.env.get('DISCODE_CONTAINER') === '1';
+      const containerSocketPath = storedConfig.containerSocketPath || this.env.get('DISCODE_CONTAINER_SOCKET_PATH');
+      const containerSyncRaw = storedConfig.containerSyncIntervalMs || (this.env.get('DISCODE_CONTAINER_SYNC_INTERVAL_MS') ? parseInt(this.env.get('DISCODE_CONTAINER_SYNC_INTERVAL_MS')!, 10) : undefined);
+
       // Merge: stored config > environment variables > defaults
       this._config = {
         discord: {
@@ -89,6 +96,13 @@ export class ConfigManager {
         opencode: opencodePermissionMode
           ? { permissionMode: opencodePermissionMode }
           : undefined,
+        ...(containerEnabled ? {
+          container: {
+            enabled: true,
+            ...(containerSocketPath ? { socketPath: containerSocketPath } : {}),
+            ...(containerSyncRaw ? { syncIntervalMs: containerSyncRaw } : {}),
+          },
+        } : {}),
       };
     }
     return this._config;

@@ -71,6 +71,9 @@ function normalizeInstanceMap(project: ProjectState): Record<string, ProjectInst
         : undefined,
       channelId: channelId,
       eventHook: typeof rawValue.eventHook === 'boolean' ? rawValue.eventHook : undefined,
+      ...(rawValue.containerMode ? { containerMode: true } : {}),
+      ...(typeof rawValue.containerId === 'string' ? { containerId: rawValue.containerId } : {}),
+      ...(typeof rawValue.containerName === 'string' ? { containerName: rawValue.containerName } : {}),
     };
   }
 

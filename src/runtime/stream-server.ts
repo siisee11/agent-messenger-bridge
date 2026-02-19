@@ -99,7 +99,12 @@ export class RuntimeStreamServer {
       });
     });
 
-    this.server.listen(this.socketPath);
+    this.server.on('error', (err: Error) => {
+      console.error(`[stream-server] listen error: ${err.message}`);
+    });
+    this.server.listen(this.socketPath, () => {
+      console.log(`[stream-server] listening on ${this.socketPath}`);
+    });
     this.pollTimer = setInterval(() => this.flushFrames(), this.tickMs);
   }
 
@@ -114,9 +119,15 @@ export class RuntimeStreamServer {
     }
     this.clients.clear();
 
-    this.server?.close();
-    this.server = undefined;
-    this.cleanupSocketPath();
+    // Only clean up the socket file if this server actually started listening.
+    // Other AgentBridge instances (e.g. from `discode new`) create a
+    // RuntimeStreamServer but never call start(); cleaning up the socket
+    // in that case would delete the daemon's active socket file.
+    if (this.server) {
+      this.server.close();
+      this.server = undefined;
+      this.cleanupSocketPath();
+    }
   }
 
   private handleMessage(client: RuntimeStreamClientState, line: string): void {

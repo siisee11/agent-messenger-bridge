@@ -38,4 +38,9 @@ export class PendingMessageTracker {
     await this.messaging.replaceOwnReactionOnMessage(pending.channelId, pending.messageId, '⏳', '❌');
     this.pendingMessageByInstance.delete(key);
   }
+
+  hasPending(projectName: string, agentType: string, instanceId?: string): boolean {
+    const key = this.pendingKey(projectName, instanceId || agentType);
+    return this.pendingMessageByInstance.has(key);
+  }
 }
