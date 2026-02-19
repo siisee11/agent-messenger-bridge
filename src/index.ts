@@ -284,7 +284,7 @@ export class AgentBridge {
       // Always inject Chrome MCP bridge config so the container can reach
       // the proxy that the daemon runs on hookServerPort + 1.
       const chromeMcpPort = (this.bridgeConfig.hookServerPort || 18470) + 1;
-      if (injectChromeMcpBridge(containerId, chromeMcpPort, socketPath)) {
+      if (injectChromeMcpBridge(containerId, chromeMcpPort, adapter.config.name, socketPath)) {
         console.log('🌐 Injected Chrome MCP bridge into container');
       }
 

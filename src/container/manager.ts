@@ -422,17 +422,82 @@ function resolveBridgeScriptPath(): string | null {
 }
 
 /**
+ * Agent-specific config paths and MCP config builders.
+ */
+interface AgentMcpConfig {
+  /** Host-side config file to read as a base. */
+  hostConfigPath: string;
+  /** Container path to write the merged config. */
+  containerConfigPath: string;
+  /** Merge the chrome-in-chrome MCP entry into the config object. */
+  merge(config: Record<string, any>, port: number): void;
+}
+
+function getAgentMcpConfig(agentType: string): AgentMcpConfig | null {
+  switch (agentType) {
+    case 'claude':
+      return {
+        hostConfigPath: join(homedir(), '.claude.json'),
+        containerConfigPath: '/home/coder/.claude.json',
+        merge(config, port) {
+          if (!config.mcpServers) config.mcpServers = {};
+          config.mcpServers['claude-in-chrome'] = {
+            type: 'stdio',
+            command: 'node',
+            args: [`/tmp/${BRIDGE_SCRIPT_FILENAME}`],
+            env: { CHROME_MCP_HOST: 'host.docker.internal', CHROME_MCP_PORT: String(port) },
+          };
+        },
+      };
+    case 'gemini':
+      return {
+        hostConfigPath: join(homedir(), '.gemini', 'settings.json'),
+        containerConfigPath: '/home/coder/.gemini/settings.json',
+        merge(config, port) {
+          if (!config.mcpServers) config.mcpServers = {};
+          config.mcpServers['claude-in-chrome'] = {
+            command: 'node',
+            args: [`/tmp/${BRIDGE_SCRIPT_FILENAME}`],
+            env: { CHROME_MCP_HOST: 'host.docker.internal', CHROME_MCP_PORT: String(port) },
+          };
+        },
+      };
+    case 'opencode':
+      return {
+        hostConfigPath: join(homedir(), '.config', 'opencode', 'opencode.json'),
+        containerConfigPath: '/home/coder/.config/opencode/opencode.json',
+        merge(config, port) {
+          if (!config.mcp) config.mcp = {};
+          config.mcp['claude-in-chrome'] = {
+            type: 'local',
+            command: ['node', `/tmp/${BRIDGE_SCRIPT_FILENAME}`],
+            environment: { CHROME_MCP_HOST: 'host.docker.internal', CHROME_MCP_PORT: String(port) },
+          };
+        },
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * Inject the Chrome MCP bridge into a container.
  *
  * 1. Copies chrome-mcp-bridge.cjs to /tmp/ inside the container
- * 2. Reads host ~/.claude.json, adds claude-in-chrome MCP server config,
- *    and overwrites /home/coder/.claude.json inside the container.
+ * 2. Reads the host-side agent config, adds the chrome MCP server entry,
+ *    and writes the merged config into the container.
  *
- * Must be called AFTER injectCredentials() so the base .claude.json exists.
+ * Supports agent-specific config formats:
+ * - claude:   ~/.claude.json          → mcpServers (stdio)
+ * - gemini:   ~/.gemini/settings.json → mcpServers (command+args)
+ * - opencode: ~/.config/opencode/opencode.json → mcp (local, command array)
+ *
+ * Must be called AFTER injectCredentials() so base configs exist.
  */
 export function injectChromeMcpBridge(
   containerId: string,
   proxyPort: number,
+  agentType: string,
   socketPath?: string,
 ): boolean {
   const sock = socketPath || findDockerSocket();
@@ -464,35 +529,25 @@ export function injectChromeMcpBridge(
       { timeout: 10_000 },
     );
 
-    // 2. Read existing .claude.json (may have been injected by injectCredentials)
-    //    and merge MCP server config.
-    let claudeJson: Record<string, any> = {};
-    const claudeJsonPath = join(homedir(), '.claude.json');
-    if (existsSync(claudeJsonPath)) {
-      try {
-        claudeJson = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
-      } catch {
-        // Malformed JSON — start fresh
+    // 2. Build and inject agent-specific MCP config
+    const mcpConfig = getAgentMcpConfig(agentType);
+    if (mcpConfig) {
+      let config: Record<string, any> = {};
+      if (existsSync(mcpConfig.hostConfigPath)) {
+        try {
+          config = JSON.parse(readFileSync(mcpConfig.hostConfigPath, 'utf-8'));
+        } catch {
+          // Malformed JSON — start fresh
+        }
       }
-    }
 
-    if (!claudeJson.mcpServers) {
-      claudeJson.mcpServers = {};
-    }
-    claudeJson.mcpServers['claude-in-chrome'] = {
-      type: 'stdio',
-      command: 'node',
-      args: [`/tmp/${BRIDGE_SCRIPT_FILENAME}`],
-      env: {
-        CHROME_MCP_HOST: 'host.docker.internal',
-        CHROME_MCP_PORT: String(proxyPort),
-      },
-    };
+      mcpConfig.merge(config, proxyPort);
 
-    copyToContainer(
-      JSON.stringify(claudeJson, null, 2),
-      '/home/coder/.claude.json',
-    );
+      copyToContainer(
+        JSON.stringify(config, null, 2),
+        mcpConfig.containerConfigPath,
+      );
+    }
 
     return true;
   } catch (error) {
