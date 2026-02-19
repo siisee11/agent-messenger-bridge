@@ -142,7 +142,7 @@ async function restartDaemonIfRunningForUpgrade(): Promise<void> {
 
   const restart = await restartDaemonIfRunning();
   if (!restart.restarted) {
-    console.log(chalk.yellow('⚠️ Could not restart daemon automatically. Restart manually with: discode daemon stop && discode daemon start'));
+    console.log(chalk.yellow('⚠️ Could not restart daemon automatically. Restart manually with: discode daemon restart'));
     return;
   }
 
