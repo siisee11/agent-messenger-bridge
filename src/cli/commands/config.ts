@@ -3,6 +3,11 @@ import { agentRegistry } from '../../agents/index.js';
 import { stateManager } from '../../state/index.js';
 import { config, getConfigPath, getConfigValue, saveConfig } from '../../config/index.js';
 import { normalizeDiscordToken } from '../../config/token.js';
+import {
+  ensureTelemetryInstallId,
+  isValidTelemetryEndpoint,
+  resolveTelemetrySettings,
+} from '../../telemetry/index.js';
 
 export async function configCommand(options: {
   show?: boolean;
@@ -16,8 +21,15 @@ export async function configCommand(options: {
   slackAppToken?: string;
   platform?: string;
   runtimeMode?: 'tmux' | 'pty';
+  telemetry?: 'on' | 'off';
+  telemetryEndpoint?: string;
 }) {
   if (options.show) {
+    const telemetry = resolveTelemetrySettings();
+    const maskedTelemetryId = telemetry.installId
+      ? `${telemetry.installId.slice(0, 8)}...${telemetry.installId.slice(-4)}`
+      : '(not set)';
+
     console.log(chalk.cyan('\n📋 Current configuration:\n'));
     console.log(chalk.gray(`   Config file: ${getConfigPath()}`));
     console.log(chalk.gray(`   Platform: ${config.messagingPlatform || 'discord'}`));
@@ -31,6 +43,9 @@ export async function configCommand(options: {
     console.log(chalk.gray(`   OpenCode Permission Mode: ${config.opencode?.permissionMode || '(not set)'}`));
     console.log(chalk.gray(`   Runtime Mode: ${config.runtimeMode || 'tmux'}`));
     console.log(chalk.gray(`   Keep Channel On Stop: ${getConfigValue('keepChannelOnStop') ? 'on' : 'off'}`));
+    console.log(chalk.gray(`   Telemetry: ${telemetry.enabled ? 'on' : 'off'}`));
+    console.log(chalk.gray(`   Telemetry Endpoint: ${telemetry.endpoint || '(not set)'}`));
+    console.log(chalk.gray(`   Telemetry Install ID: ${maskedTelemetryId}`));
     console.log(chalk.cyan('\n🤖 Registered Agents:\n'));
     for (const adapter of agentRegistry.getAll()) {
       console.log(chalk.gray(`   - ${adapter.config.displayName} (${adapter.config.name})`));
@@ -40,6 +55,42 @@ export async function configCommand(options: {
   }
 
   let updated = false;
+
+  if (options.telemetryEndpoint !== undefined) {
+    const endpoint = options.telemetryEndpoint.trim();
+    if (!endpoint) {
+      saveConfig({ telemetryEndpoint: undefined });
+      console.log(chalk.green('✅ Telemetry endpoint cleared'));
+    } else {
+      if (!isValidTelemetryEndpoint(endpoint)) {
+        console.error(chalk.red('Invalid telemetry endpoint URL. Use an absolute http(s) URL.'));
+        process.exit(1);
+      }
+      saveConfig({ telemetryEndpoint: endpoint });
+      console.log(chalk.green(`✅ Telemetry endpoint saved: ${endpoint}`));
+    }
+    updated = true;
+  }
+
+  if (options.telemetry) {
+    const enabled = options.telemetry === 'on';
+    saveConfig({ telemetryEnabled: enabled });
+    if (enabled) {
+      const installId = ensureTelemetryInstallId();
+      console.log(chalk.green('✅ Telemetry enabled (anonymous usage events)'));
+      if (installId) {
+        console.log(chalk.gray(`   Install ID: ${installId.slice(0, 8)}...${installId.slice(-4)}`));
+      }
+      const endpoint = resolveTelemetrySettings().endpoint;
+      if (!endpoint) {
+        console.log(chalk.yellow('⚠️ Telemetry endpoint is not set.'));
+        console.log(chalk.gray('   Set one with: discode config --telemetry-endpoint https://your-worker.example/v1/events'));
+      }
+    } else {
+      console.log(chalk.green('✅ Telemetry disabled'));
+    }
+    updated = true;
+  }
 
   if (options.platform) {
     const platform = options.platform === 'slack' ? 'slack' : 'discord';
@@ -135,6 +186,8 @@ export async function configCommand(options: {
     console.log(chalk.gray('  discode config --slack-bot-token xoxb-...'));
     console.log(chalk.gray('  discode config --slack-app-token xapp-...'));
     console.log(chalk.gray('  discode config --opencode-permission allow'));
+    console.log(chalk.gray('  discode config --telemetry on'));
+    console.log(chalk.gray('  discode config --telemetry-endpoint https://your-worker.example/v1/events'));
     console.log(chalk.gray('  discode config --show'));
   }
 }

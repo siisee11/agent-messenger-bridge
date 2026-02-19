@@ -17,6 +17,8 @@
     "pages:build": "vite build",
     "pages:preview": "vite preview",
     "pages:deploy": "vite build && wrangler pages deploy ./dist-site --project-name=discode-landing",
+    "telemetry:deploy": "wrangler deploy --config workers/telemetry-proxy/wrangler.jsonc",
+    "telemetry:secret": "wrangler secret put GA4_API_SECRET --config workers/telemetry-proxy/wrangler.jsonc",
     "setup:claude-plugin": "tsx scripts/setup-claude-plugin.ts",
     "setup:gemini-hook": "tsx scripts/setup-gemini-hook.ts",
     "setup:opencode-plugin": "tsx scripts/setup-opencode-plugin.ts",

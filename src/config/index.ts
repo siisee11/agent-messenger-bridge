@@ -22,6 +22,9 @@ export interface StoredConfig {
   slackAppToken?: string;
   messagingPlatform?: 'discord' | 'slack';
   runtimeMode?: 'tmux' | 'pty';
+  telemetryEnabled?: boolean;
+  telemetryEndpoint?: string;
+  telemetryInstallId?: string;
 }
 
 export class ConfigManager {

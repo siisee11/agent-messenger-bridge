@@ -113,7 +113,7 @@ discode attach         # tmux 세션에 연결
 
 #### `onboard`
 
-최초 온보딩: 봇 토큰 입력, Discord 서버 자동 감지, 기본 AI CLI 선택, OpenCode 권한 모드 설정.
+최초 온보딩: 봇 토큰 입력, Discord 서버 자동 감지, 기본 AI CLI 선택, OpenCode 권한 모드 설정, 텔레메트리 옵트인 선택.
 
 ```bash
 discode onboard
@@ -128,6 +128,7 @@ discode onboard --token YOUR_BOT_TOKEN
 4. `discode new` 기본 AI CLI 선택
 5. OpenCode 권한 `allow` 사용 여부 확인
 6. `allow`를 사용하지 않으면 Discord 승인 프롬프트가 잦아 불편할 수 있음을 안내
+7. 익명 CLI 텔레메트리 활성화 여부(옵트인) 확인
 
 #### `daemon <action>`
 
@@ -172,6 +173,8 @@ discode config --show              # 현재 설정 표시
 discode config --token NEW_TOKEN   # 봇 토큰 변경
 discode config --server SERVER_ID  # Discord 서버 ID 수동 설정
 discode config --port 18470        # 훅 서버 포트 설정
+discode config --telemetry on      # 익명 CLI 텔레메트리 활성화(옵트인)
+discode config --telemetry-endpoint https://your-worker.example/v1/events
 ```
 
 ### 프로젝트 명령어
@@ -325,7 +328,8 @@ export interface AgentAdapter {
 {
   "token": "YOUR_BOT_TOKEN",
   "serverId": "YOUR_SERVER_ID",
-  "hookServerPort": 18470
+  "hookServerPort": 18470,
+  "telemetryEnabled": false
 }
 ```
 
@@ -334,6 +338,8 @@ export interface AgentAdapter {
 ```bash
 discode config --show               # 현재 설정 확인
 discode config --server SERVER_ID    # 서버 ID 수동 설정
+discode config --telemetry on        # 익명 텔레메트리 활성화
+discode config --telemetry-endpoint https://your-worker.example/v1/events
 ```
 
 ### 프로젝트 상태
@@ -348,7 +354,27 @@ discode config --server SERVER_ID    # 서버 ID 수동 설정
 DISCORD_BOT_TOKEN=token discode daemon start
 DISCORD_GUILD_ID=server_id discode new
 HOOK_SERVER_PORT=18470 discode new
+DISCODE_TELEMETRY_ENABLED=true discode new
+DISCODE_TELEMETRY_ENDPOINT=https://your-worker.example/v1/events discode new
 ```
+
+### 텔레메트리 프록시 (GA4)
+
+Cloudflare Worker 프록시 배포:
+
+```bash
+npm run telemetry:deploy
+npm run telemetry:secret
+```
+
+배포된 Worker URL을 CLI에 설정:
+
+```bash
+discode config --telemetry-endpoint https://discode-telemetry-proxy.<your-subdomain>.workers.dev
+discode config --telemetry on
+```
+
+Worker 소스: `workers/telemetry-proxy`
 
 ## 개발
 

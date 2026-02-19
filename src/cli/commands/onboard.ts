@@ -7,6 +7,7 @@ import { getConfigValue, saveConfig } from '../../config/index.js';
 import { normalizeDiscordToken } from '../../config/token.js';
 import { ensureOpencodePermissionChoice } from '../common/opencode-permission.js';
 import { confirmYesNo, isInteractiveShell, prompt } from '../common/interactive.js';
+import { ensureTelemetryInstallId, resolveTelemetrySettings } from '../../telemetry/index.js';
 
 type RegisteredAgentAdapter = ReturnType<typeof agentRegistry.getAll>[number];
 
@@ -87,6 +88,23 @@ async function chooseRuntimeMode(explicitMode?: string): Promise<'tmux' | 'pty'>
     if (answer === '2') return 'tmux';
     console.log(chalk.yellow('Please enter a valid number.'));
   }
+}
+
+async function chooseTelemetryOptIn(): Promise<boolean> {
+  const configured = getConfigValue('telemetryEnabled');
+  const defaultEnabled = configured === true;
+
+  if (!isInteractiveShell()) {
+    const enabled = configured === true;
+    console.log(chalk.yellow(`⚠️ Non-interactive shell: telemetry ${enabled ? 'on' : 'off'}.`));
+    return enabled;
+  }
+
+  console.log(chalk.white('\nAnonymous telemetry (optional)'));
+  console.log(chalk.gray('   Sends only command usage metadata (command, success/failure, duration).'));
+  console.log(chalk.gray('   Never sends bot tokens, prompts, paths, project names, or message contents.'));
+
+  return confirmYesNo(chalk.white('Enable anonymous CLI telemetry? [y/N]: '), defaultEnabled);
 }
 
 async function onboardDiscord(token?: string): Promise<void> {
@@ -274,6 +292,23 @@ export async function onboardCommand(options: {
     }
 
     await ensureOpencodePermissionChoice({ shouldPrompt: true, forcePrompt: true });
+
+    const telemetryEnabled = await chooseTelemetryOptIn();
+    saveConfig({ telemetryEnabled });
+    if (telemetryEnabled) {
+      const installId = ensureTelemetryInstallId();
+      console.log(chalk.green('✅ Anonymous telemetry enabled'));
+      if (installId) {
+        console.log(chalk.gray(`   Install ID: ${installId.slice(0, 8)}...${installId.slice(-4)}`));
+      }
+      const endpoint = resolveTelemetrySettings().endpoint;
+      if (!endpoint) {
+        console.log(chalk.yellow('⚠️ Telemetry endpoint is not set.'));
+        console.log(chalk.gray('   Set one with: discode config --telemetry-endpoint https://your-worker.example/v1/events'));
+      }
+    } else {
+      console.log(chalk.green('✅ Anonymous telemetry disabled'));
+    }
 
     console.log(chalk.cyan('\n✨ Onboarding complete!\n'));
     console.log(chalk.white('Next step:'));

@@ -26,6 +26,7 @@ import { uninstallCommand } from '../src/cli/commands/uninstall.js';
 import { getDaemonStatus, restartDaemonIfRunning } from '../src/app/daemon-service.js';
 import { addTmuxOptions } from '../src/cli/common/options.js';
 import { confirmYesNo, isInteractiveShell } from '../src/cli/common/interactive.js';
+import { recordCliCommandTelemetry } from '../src/telemetry/index.js';
 
 export { newCommand, attachCommand, stopCommand };
 
@@ -198,6 +199,32 @@ async function maybePromptForUpgrade(rawArgs: string[]): Promise<void> {
   }
 }
 
+function withCommandTelemetry(
+  command: string,
+  handler: (argv: any) => Promise<void> | void,
+): (argv: any) => Promise<void> {
+  return async (argv: any) => {
+    const startedAt = Date.now();
+    try {
+      await handler(argv);
+      await recordCliCommandTelemetry({
+        command,
+        success: true,
+        durationMs: Date.now() - startedAt,
+        cliVersion: CLI_VERSION,
+      });
+    } catch (error) {
+      await recordCliCommandTelemetry({
+        command,
+        success: false,
+        durationMs: Date.now() - startedAt,
+        cliVersion: CLI_VERSION,
+      });
+      throw error;
+    }
+  };
+}
+
 export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise<void> {
   await maybePromptForUpgrade(rawArgs);
 
@@ -211,36 +238,36 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       ['$0', 'tui'],
       'Interactive terminal UI (supports /new)',
       (y: Argv) => addTmuxOptions(y),
-      async (argv: any) =>
+      withCommandTelemetry('tui', async (argv: any) =>
         tuiCommand({
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'onboard',
-      'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission',
+      'One-time onboarding: save token, choose default AI CLI, configure OpenCode permission, choose telemetry opt-in',
       (y: Argv) => y
         .option('platform', { type: 'string', choices: ['discord', 'slack'], describe: 'Messaging platform to use' })
         .option('runtime-mode', { type: 'string', choices: ['tmux', 'pty'], describe: 'Runtime backend to use' })
         .option('token', { alias: 't', type: 'string', describe: 'Discord bot token (optional; prompt if omitted)' })
         .option('slack-bot-token', { type: 'string', describe: 'Slack bot token (xoxb-...)' })
         .option('slack-app-token', { type: 'string', describe: 'Slack app-level token (xapp-...)' }),
-      async (argv: any) => onboardCommand({
+      withCommandTelemetry('onboard', async (argv: any) => onboardCommand({
         platform: argv.platform,
         runtimeMode: argv.runtimeMode,
         token: argv.token,
         slackBotToken: argv.slackBotToken,
         slackAppToken: argv.slackAppToken,
-      })
+      }))
     )
     .command(
       'setup [token]',
       false,
       (y: Argv) => y.positional('token', { type: 'string', describe: 'Discord bot token (deprecated)' }),
-      async (argv: any) => {
+      withCommandTelemetry('setup', async (argv: any) => {
         console.log(chalk.yellow('⚠️ `setup` is deprecated. Use `discode onboard` instead.'));
         await onboardCommand({ token: argv.token });
-      }
+      })
     )
     .command(
       'start',
@@ -248,12 +275,12 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
       (y: Argv) => addTmuxOptions(y)
         .option('project', { alias: 'p', type: 'string', describe: 'Start for specific project only' })
         .option('attach', { alias: 'a', type: 'boolean', describe: 'Attach to tmux session after starting (requires --project)' }),
-      async (argv: any) =>
+      withCommandTelemetry('start', async (argv: any) =>
         startCommand({
           project: argv.project,
           attach: argv.attach,
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'new [agent]',
@@ -263,13 +290,13 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
         .option('name', { alias: 'n', type: 'string', describe: 'Project name (defaults to directory name)' })
         .option('instance', { type: 'string', describe: 'Agent instance ID (e.g. gemini-2)' })
         .option('attach', { type: 'boolean', default: true, describe: 'Attach to tmux session after setup' }),
-      async (argv: any) =>
+      withCommandTelemetry('new', async (argv: any) =>
         newCommand(argv.agent, {
           name: argv.name,
           instance: argv.instance,
           attach: argv.attach,
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'config',
@@ -289,8 +316,17 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
           choices: ['allow', 'default'],
           describe: 'Set OpenCode permission mode',
         })
+        .option('telemetry', {
+          type: 'string',
+          choices: ['on', 'off'],
+          describe: 'Enable or disable anonymous CLI telemetry',
+        })
+        .option('telemetry-endpoint', {
+          type: 'string',
+          describe: 'Set telemetry proxy endpoint URL',
+        })
         .option('show', { type: 'boolean', describe: 'Show current configuration' }),
-      async (argv: any) =>
+      withCommandTelemetry('config', async (argv: any) =>
         configCommand({
           show: argv.show,
           server: argv.server,
@@ -303,41 +339,43 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
           runtimeMode: argv.runtimeMode,
           slackBotToken: argv.slackBotToken,
           slackAppToken: argv.slackAppToken,
-        })
+          telemetry: argv.telemetry,
+          telemetryEndpoint: argv.telemetryEndpoint,
+        }))
     )
     .command(
       'status',
       'Show bridge and project status',
       (y: Argv) => addTmuxOptions(y),
-      async (argv: any) =>
+      withCommandTelemetry('status', async (argv: any) =>
         await statusCommand({
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'list',
       'List all configured projects',
       (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-      async (argv: any) => await listCommand({ prune: argv.prune })
+      withCommandTelemetry('list', async (argv: any) => await listCommand({ prune: argv.prune }))
     )
     .command(
       'ls',
       false,
       (y: Argv) => y.option('prune', { type: 'boolean', describe: 'Remove projects whose tmux window is not running' }),
-      async (argv: any) => await listCommand({ prune: argv.prune })
+      withCommandTelemetry('ls', async (argv: any) => await listCommand({ prune: argv.prune }))
     )
-    .command('agents', 'List available AI agent adapters', () => {}, () => agentsCommand())
+    .command('agents', 'List available AI agent adapters', () => {}, withCommandTelemetry('agents', async () => agentsCommand()))
     .command(
       'attach [project]',
       'Attach to a project tmux session',
       (y: Argv) => addTmuxOptions(y)
         .positional('project', { type: 'string' })
         .option('instance', { type: 'string', describe: 'Attach specific instance ID' }),
-      async (argv: any) =>
+      withCommandTelemetry('attach', async (argv: any) =>
         await attachCommand(argv.project, {
           instance: argv.instance,
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'stop [project]',
@@ -346,12 +384,12 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
         .positional('project', { type: 'string' })
         .option('instance', { type: 'string', describe: 'Stop only a specific instance ID' })
         .option('keep-channel', { type: 'boolean', describe: 'Keep Discord channel (only kill tmux)' }),
-      async (argv: any) =>
+      withCommandTelemetry('stop', async (argv: any) =>
         stopCommand(argv.project, {
           keepChannel: argv.keepChannel,
           instance: argv.instance,
           tmuxSharedSessionName: argv.tmuxSharedSessionName,
-        })
+        }))
     )
     .command(
       'daemon <action>',
@@ -361,7 +399,7 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
         demandOption: true,
         choices: ['start', 'restart', 'stop', 'status'],
       }),
-      async (argv: any) => daemonCommand(argv.action)
+      withCommandTelemetry('daemon', async (argv: any) => daemonCommand(argv.action))
     )
     .command(
       'uninstall',
@@ -374,12 +412,12 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
           default: false,
           describe: 'Do not run npm/bun global uninstall commands',
         }),
-      async (argv: any) =>
+      withCommandTelemetry('uninstall', async (argv: any) =>
         uninstallCommand({
           purge: argv.purge,
           yes: argv.yes,
           skipPackageUninstall: argv.skipPackageUninstall,
-        })
+        }))
     )
     .parseAsync();
 }

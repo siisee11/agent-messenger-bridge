@@ -120,7 +120,7 @@ discode uninstall --purge --yes
 discode onboard
 ```
 
-The `onboard` command prompts for your bot token, auto-detects the Discord server ID, lets you choose a default AI CLI, and asks whether to enable OpenCode `allow` permission mode. You can verify or change settings later:
+The `onboard` command prompts for your bot token, auto-detects the Discord server ID, lets you choose a default AI CLI, asks whether to enable OpenCode `allow` permission mode, and asks for telemetry opt-in. You can verify or change settings later:
 
 ```bash
 discode config --show              # View current configuration
@@ -152,7 +152,7 @@ Your AI agent is now running in tmux, with output delivered to Discord/Slack in 
 
 #### `onboard`
 
-One-time onboarding: prompts for bot token, connects to Discord to auto-detect your server, lets you choose your default AI CLI, and configures OpenCode permission mode.
+One-time onboarding: prompts for bot token, connects to Discord to auto-detect your server, lets you choose your default AI CLI, configures OpenCode permission mode, and asks telemetry opt-in.
 
 ```bash
 discode onboard
@@ -167,6 +167,7 @@ The onboarding flow will:
 4. Let you choose a default AI CLI for `discode new`
 5. Ask whether to set OpenCode permission mode to `allow`
 6. Warn that non-`allow` mode may cause inconvenient approval prompts in Discord
+7. Ask whether to enable anonymous CLI telemetry (opt-in)
 
 #### `daemon <action>`
 
@@ -211,6 +212,8 @@ discode config --show              # Show current configuration
 discode config --token NEW_TOKEN   # Update bot token
 discode config --server SERVER_ID  # Set Discord server ID manually
 discode config --port 18470        # Set hook server port
+discode config --telemetry on      # Enable anonymous CLI telemetry (opt-in)
+discode config --telemetry-endpoint https://your-worker.example/v1/events
 ```
 
 ### Project Commands
@@ -290,7 +293,8 @@ Stored in `~/.discode/config.json`:
 {
   "token": "YOUR_BOT_TOKEN",
   "serverId": "YOUR_SERVER_ID",
-  "hookServerPort": 18470
+  "hookServerPort": 18470,
+  "telemetryEnabled": false
 }
 ```
 
@@ -300,12 +304,17 @@ Stored in `~/.discode/config.json`:
 | `serverId` | **Yes** | Discord server (guild) ID. Auto-detected by `onboard`, or set via `config --server` | - |
 | `hookServerPort` | No | Port for the hook server | `18470` |
 | `defaultAgentCli` | No | Default AI CLI used by `discode new` when agent is omitted | First installed CLI |
+| `telemetryEnabled` | No | Opt-in flag for anonymous CLI telemetry | `false` |
+| `telemetryEndpoint` | No | HTTP endpoint for telemetry proxy (recommended: Cloudflare Worker) | - |
+| `telemetryInstallId` | No | Anonymous per-install random ID used as GA client ID | Auto-generated on opt-in |
 
 ```bash
 discode config --show               # View current config
 discode config --token NEW_TOKEN     # Update bot token
 discode config --server SERVER_ID    # Set server ID manually
 discode config --port 18470          # Set hook server port
+discode config --telemetry on        # Enable anonymous telemetry
+discode config --telemetry-endpoint https://your-worker.example/v1/events
 ```
 
 ### Project State
@@ -325,11 +334,32 @@ Config values can be overridden with environment variables:
 | `TMUX_SHARED_SESSION_NAME` | No | Shared tmux session name (without prefix) | `bridge` |
 | `DISCODE_DEFAULT_AGENT_CLI` | No | Default AI CLI used by `discode new` when agent is omitted | First installed CLI |
 | `HOOK_SERVER_PORT` | No | Port for the hook server | `18470` |
+| `DISCODE_TELEMETRY_ENABLED` | No | Enable telemetry without writing config (`true/false`) | `false` |
+| `DISCODE_TELEMETRY_ENDPOINT` | No | Telemetry proxy endpoint URL | - |
+| `DISCODE_TELEMETRY_INSTALL_ID` | No | Override anonymous install ID | - |
 
 ```bash
 DISCORD_BOT_TOKEN=token discode daemon start
 DISCORD_GUILD_ID=server_id discode new
 ```
+
+### Telemetry Proxy (GA4)
+
+Deploy Cloudflare Worker proxy:
+
+```bash
+npm run telemetry:deploy
+npm run telemetry:secret
+```
+
+Then point CLI telemetry to your deployed Worker URL:
+
+```bash
+discode config --telemetry-endpoint https://discode-telemetry-proxy.<your-subdomain>.workers.dev
+discode config --telemetry on
+```
+
+Worker source: `workers/telemetry-proxy`
 
 ## Development
 
