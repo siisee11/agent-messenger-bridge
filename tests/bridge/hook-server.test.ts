@@ -385,12 +385,753 @@ describe('BridgeHookServer', () => {
       );
     });
 
+    it('handles session.notification with permission_prompt', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'permission_prompt',
+        text: 'Claude needs permission to use Bash',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith(
+        'ch-123',
+        expect.stringContaining('Claude needs permission to use Bash'),
+      );
+      // Should contain the lock emoji for permission_prompt
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toMatch(/^🔐/);
+    });
+
+    it('handles session.notification with idle_prompt', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'idle_prompt',
+        text: 'Claude is idle',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toMatch(/^💤/);
+    });
+
+    it('handles session.notification with auth_success', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'auth_success',
+        text: 'Auth succeeded',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toMatch(/^🔑/);
+      expect(sentMsg).toContain('Auth succeeded');
+    });
+
+    it('handles session.notification with elicitation_dialog', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'elicitation_dialog',
+        text: 'Claude wants to ask a question',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toMatch(/^❓/);
+    });
+
+    it('handles session.notification without text (falls back to notificationType)', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'permission_prompt',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('permission_prompt');
+    });
+
+    it('handles session.notification without notificationType', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        text: 'Some notification',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      // Should use bell emoji for unknown type
+      expect(sentMsg).toMatch(/^🔔/);
+    });
+
+    it('handles session.notification with both text and notificationType missing', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      // Bell emoji for unknown type, message falls back to notificationType "unknown"
+      expect(sentMsg).toMatch(/^🔔/);
+      expect(sentMsg).toContain('unknown');
+    });
+
+    it('handles session.notification with unknown type using bell emoji', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.notification',
+        notificationType: 'some_new_type',
+        text: 'New notification',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toMatch(/^🔔/);
+    });
+
+    it('handles session.start event', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.start',
+        source: 'startup',
+        model: 'claude-sonnet-4-6',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith(
+        'ch-123',
+        expect.stringContaining('Session started'),
+      );
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('startup');
+      expect(sentMsg).toContain('claude-sonnet-4-6');
+    });
+
+    it('handles session.start without model', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.start',
+        source: 'resume',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('resume');
+      expect(sentMsg).not.toContain(',');
+    });
+
+    it('handles session.start without source (defaults to unknown)', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.start',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('unknown');
+      expect(sentMsg).not.toContain(',');
+    });
+
+    it('handles session.end event', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.end',
+        reason: 'logout',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith(
+        'ch-123',
+        expect.stringContaining('Session ended'),
+      );
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('logout');
+    });
+
+    it('handles session.end without reason (defaults to unknown)', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.end',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('unknown');
+    });
+
+    it('handles session.end with prompt_input_exit reason', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.end',
+        reason: 'prompt_input_exit',
+      });
+      expect(res.status).toBe(200);
+      const sentMsg = mockMessaging.sendToChannel.mock.calls[0][1];
+      expect(sentMsg).toContain('prompt_input_exit');
+    });
+
     it('returns 400 for missing projectName', async () => {
       startServer();
       await new Promise((r) => setTimeout(r, 50));
 
       const res = await postJSON(port, '/opencode-event', { type: 'session.idle' });
       expect(res.status).toBe(400);
+    });
+
+    it('returns 400 for invalid JSON body', async () => {
+      startServer();
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postRaw(port, '/opencode-event', 'not valid json');
+      expect(res.status).toBe(400);
+      expect(res.body).toContain('Invalid JSON');
+    });
+
+    it('returns 400 for non-object payload', async () => {
+      startServer();
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postRaw(port, '/opencode-event', '"just a string"');
+      expect(res.status).toBe(400);
+      expect(res.body).toContain('Invalid event payload');
+    });
+
+    it('returns 400 for unknown project', async () => {
+      startServer({ stateManager: createMockStateManager({}) as any });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'nonexistent',
+        agentType: 'claude',
+        type: 'session.idle',
+        text: 'hello',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('prefers text over message field in getEventText', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.idle',
+        text: 'from text field',
+        message: 'from message field',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-123', 'from text field');
+    });
+
+    it('falls back to message field when text is missing', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.idle',
+        message: 'fallback message',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-123', 'fallback message');
+    });
+
+    it('handles session.error without text (defaults to "unknown error")', async () => {
+      const mockMessaging = createMockMessaging();
+      const mockPendingTracker = createMockPendingTracker();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.error',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith(
+        'ch-123',
+        expect.stringContaining('unknown error'),
+      );
+    });
+
+    it('handles session.idle with empty text (no message sent)', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.idle',
+      });
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).not.toHaveBeenCalled();
+    });
+
+    it('handles unknown event type gracefully', async () => {
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'some.future.event',
+        text: 'hello',
+      });
+      // Unknown event types still return 200 (true) per the catch-all return
+      expect(res.status).toBe(200);
+      expect(mockMessaging.sendToChannel).not.toHaveBeenCalled();
+    });
+
+    it('uses turnText for file path extraction when text has no paths', async () => {
+      const filesDir = join(tempDir, '.discode', 'files');
+      mkdirSync(filesDir, { recursive: true });
+      const testFile = join(filesDir, 'output.png');
+      writeFileSync(testFile, 'fake-png');
+
+      const mockMessaging = createMockMessaging();
+      const stateManager = createMockStateManager({
+        test: {
+          projectName: 'test',
+          projectPath: tempDir,
+          tmuxSession: 'bridge',
+          agents: { claude: true },
+          discordChannels: { claude: 'ch-123' },
+          instances: {
+            claude: { instanceId: 'claude', agentType: 'claude', channelId: 'ch-123' },
+          },
+          createdAt: new Date(),
+          lastActive: new Date(),
+        },
+      });
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: createMockPendingTracker() as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test',
+        agentType: 'claude',
+        type: 'session.idle',
+        text: 'Here is the chart',
+        turnText: `Created ${testFile}`,
+      });
+      expect(res.status).toBe(200);
+      // Text message should be sent
+      expect(mockMessaging.sendToChannel).toHaveBeenCalled();
+      // File from turnText should be sent
+      expect(mockMessaging.sendToChannelWithFiles).toHaveBeenCalledWith('ch-123', '', [testFile]);
     });
 
     it('skips empty text chunks', async () => {

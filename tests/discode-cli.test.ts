@@ -267,4 +267,34 @@ describe('CLI flow safety (stage 1)', () => {
     expect(mocks.stateManager.setProject).toHaveBeenCalledOnce();
     expect(mocks.stateManager.removeProject).not.toHaveBeenCalled();
   });
+
+  it('new: shows install guidance when no agents installed', async () => {
+    mocks.agentAdapter.isInstalled.mockReturnValue(false);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('process.exit'); });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const mod = await import('../bin/discode.ts');
+
+    await expect(mod.newCommand(undefined, { name: 'demo', attach: false }))
+      .rejects.toThrow('process.exit');
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    // Verify error message
+    const errorCall = errorSpy.mock.calls.find((call) =>
+      typeof call[0] === 'string' && call[0].includes('No agent CLIs found')
+    );
+    expect(errorCall).toBeDefined();
+
+    // Verify install instructions for all three agents
+    const allLogs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(allLogs).toContain('npm install -g @anthropic-ai/claude-code');
+    expect(allLogs).toContain('npm install -g @anthropic-ai/gemini-cli');
+    expect(allLogs).toContain('go install github.com/anthropics/opencode@latest');
+
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
 });

@@ -81,6 +81,30 @@ function createClaudeProject() {
   };
 }
 
+function createOpencodeContainerProject() {
+  return {
+    projectName: 'discode',
+    projectPath: '/Users/gui/discode',
+    tmuxSession: 'bridge',
+    agents: { opencode: true },
+    discordChannels: { opencode: 'ch-opencode' },
+    instances: {
+      opencode: {
+        instanceId: 'opencode',
+        agentType: 'opencode',
+        tmuxWindow: 'discode-opencode',
+        channelId: 'ch-opencode',
+        eventHook: true,
+        containerMode: true,
+        containerId: 'e69378dfe934',
+        containerName: 'discode-discode-opencode',
+      },
+    },
+    createdAt: new Date(),
+    lastActive: new Date(),
+  };
+}
+
 function createMultiAgentProject() {
   return {
     projectName: 'multi',
@@ -292,6 +316,39 @@ describe('BridgeProjectBootstrap', () => {
       expect(() => bootstrap.bootstrapProjects()).not.toThrow();
     });
 
+    it('registers channel mapping for opencode container instance', () => {
+      const stateManager = createMockStateManager([createOpencodeContainerProject()]);
+      const messaging = createMockMessaging();
+      const bootstrap = new BridgeProjectBootstrap(stateManager, messaging);
+
+      bootstrap.bootstrapProjects();
+
+      expect(messaging.registerChannelMappings).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            channelId: 'ch-opencode',
+            projectName: 'discode',
+            agentType: 'opencode',
+            instanceId: 'opencode',
+          }),
+        ]),
+      );
+    });
+
+    it('installs opencode integration for container project', () => {
+      const stateManager = createMockStateManager([createOpencodeContainerProject()]);
+      const messaging = createMockMessaging();
+      const bootstrap = new BridgeProjectBootstrap(stateManager, messaging, 18470);
+
+      bootstrap.bootstrapProjects();
+
+      expect(mockInstallAgentIntegration).toHaveBeenCalledWith(
+        'opencode',
+        '/Users/gui/discode',
+        'install',
+      );
+    });
+
     it('does not register mappings for empty project list', () => {
       const stateManager = createMockStateManager([]);
       const messaging = createMockMessaging();
@@ -318,6 +375,27 @@ describe('BridgeProjectBootstrap', () => {
           expect.objectContaining({
             channelId: 'ch-claude',
             projectName: 'myapp',
+          }),
+        ]),
+      );
+    });
+
+    it('reloads channel mappings for opencode container instance', () => {
+      const project = createOpencodeContainerProject();
+      const stateManager = createMockStateManager([project]);
+      const messaging = createMockMessaging();
+      const bootstrap = new BridgeProjectBootstrap(stateManager, messaging);
+
+      bootstrap.reloadChannelMappings();
+
+      expect(stateManager.reload).toHaveBeenCalled();
+      expect(messaging.registerChannelMappings).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            channelId: 'ch-opencode',
+            projectName: 'discode',
+            agentType: 'opencode',
+            instanceId: 'opencode',
           }),
         ]),
       );

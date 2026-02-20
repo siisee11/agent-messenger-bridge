@@ -37,7 +37,7 @@ const mockEnsureImage = vi.fn();
 
 vi.mock('../../src/container/image.js', () => ({
   ensureImage: (...args: any[]) => mockEnsureImage(...args),
-  FULL_IMAGE_TAG: 'discode-agent:1',
+  imageTagFor: (agentType: string) => `discode-agent-${agentType}:1`,
 }));
 
 import { join } from 'path';
@@ -250,6 +250,7 @@ describe('container/manager', () => {
   describe('createContainer', () => {
     it('throws when no socket found', () => {
       expect(() => createContainer({
+        agentType: 'claude',
         containerName: 'test-container',
         projectPath: '/test/path',
       })).toThrow('Docker socket not found');
@@ -260,11 +261,12 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456789\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test-container',
         projectPath: '/test/path',
       });
 
-      expect(mockEnsureImage).toHaveBeenCalledWith('/var/run/docker.sock');
+      expect(mockEnsureImage).toHaveBeenCalledWith('claude', '/var/run/docker.sock');
     });
 
     it('returns truncated 12-char container ID', () => {
@@ -272,6 +274,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456789extrachars\n');
 
       const id = createContainer({
+        agentType: 'claude',
         containerName: 'test-container',
         projectPath: '/test/path',
       });
@@ -284,6 +287,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'my-container',
         projectPath: '/home/user/project',
         env: { AGENT_DISCORD_PROJECT: 'myapp', FOO: 'bar' },
@@ -302,7 +306,7 @@ describe('container/manager', () => {
           '-u', '1000:1000',
           '-e', 'AGENT_DISCORD_PROJECT=myapp',
           '-e', 'FOO=bar',
-          'discode-agent:1',
+          'discode-agent-claude:1',
         ]),
         expect.objectContaining({ timeout: 30_000 }),
       );
@@ -313,6 +317,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test',
         projectPath: '/test',
       });
@@ -325,6 +330,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test',
         projectPath: '/test',
         socketPath: '/custom/docker.sock',
@@ -342,6 +348,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'my-agent',
         projectPath: '/test',
       });
@@ -361,6 +368,7 @@ describe('container/manager', () => {
         .mockReturnValueOnce('abc123def456\n');
 
       const id = createContainer({
+        agentType: 'claude',
         containerName: 'fresh',
         projectPath: '/test',
       });
@@ -373,6 +381,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test-agent',
         projectPath: '/test',
         command: 'claude --dangerously-skip-permissions',
@@ -384,7 +393,7 @@ describe('container/manager', () => {
       );
       const args = createCall![1] as string[];
       // command is passed as -c <command> after the image tag
-      const imageIdx = args.indexOf('discode-agent:1');
+      const imageIdx = args.indexOf('discode-agent-claude:1');
       expect(imageIdx).toBeGreaterThan(-1);
       expect(args[imageIdx + 1]).toBe('-c');
       expect(args[imageIdx + 2]).toBe('claude --dangerously-skip-permissions');
@@ -395,6 +404,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test',
         projectPath: '/test',
       });
@@ -403,7 +413,7 @@ describe('container/manager', () => {
         (c: any[]) => (c[1] as string[]).includes('create'),
       );
       const args = createCall![1] as string[];
-      const imageIdx = args.indexOf('discode-agent:1');
+      const imageIdx = args.indexOf('discode-agent-claude:1');
       // Nothing after the image tag
       expect(args.length).toBe(imageIdx + 1);
     });
@@ -413,6 +423,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test-vol',
         projectPath: '/test',
         volumes: [
@@ -441,6 +452,7 @@ describe('container/manager', () => {
       mockExecFileSync.mockReturnValue('abc123def456\n');
 
       createContainer({
+        agentType: 'claude',
         containerName: 'test-full',
         projectPath: '/project',
         command: 'claude --plugin-dir /home/coder/.claude/plugins/bridge',
@@ -452,7 +464,7 @@ describe('container/manager', () => {
       );
       const args = createCall![1] as string[];
       expect(args).toContain('/host/bridge:/home/coder/.claude/plugins/bridge:ro');
-      const imageIdx = args.indexOf('discode-agent:1');
+      const imageIdx = args.indexOf('discode-agent-claude:1');
       expect(args[imageIdx + 1]).toBe('-c');
       expect(args[imageIdx + 2]).toBe('claude --plugin-dir /home/coder/.claude/plugins/bridge');
     });

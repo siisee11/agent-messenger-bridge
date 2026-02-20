@@ -4,10 +4,13 @@ import { tmpdir } from 'os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CLAUDE_PLUGIN_NAME,
-  CLAUDE_STOP_HOOK_FILENAME,
   getPluginSourceDir,
   installClaudePlugin,
 } from '../../src/claude/plugin-installer.js';
+
+const CLAUDE_STOP_HOOK_FILENAME = 'discode-stop-hook.js';
+const CLAUDE_NOTIFICATION_HOOK_FILENAME = 'discode-notification-hook.js';
+const CLAUDE_SESSION_HOOK_FILENAME = 'discode-session-hook.js';
 
 describe('claude plugin installer', () => {
   let tempDir: string;
@@ -25,6 +28,8 @@ describe('claude plugin installer', () => {
     expect(existsSync(join(sourceDir, '.claude-plugin', 'plugin.json'))).toBe(true);
     expect(existsSync(join(sourceDir, 'hooks', 'hooks.json'))).toBe(true);
     expect(existsSync(join(sourceDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME))).toBe(true);
+    expect(existsSync(join(sourceDir, 'scripts', CLAUDE_NOTIFICATION_HOOK_FILENAME))).toBe(true);
+    expect(existsSync(join(sourceDir, 'scripts', CLAUDE_SESSION_HOOK_FILENAME))).toBe(true);
   });
 
   it('plugin.json has correct name and no hooks', () => {
@@ -43,12 +48,57 @@ describe('claude plugin installer', () => {
     });
   });
 
+  it('hooks.json references notification and session hooks with async', () => {
+    const sourceDir = getPluginSourceDir();
+    const hooks = JSON.parse(readFileSync(join(sourceDir, 'hooks', 'hooks.json'), 'utf-8'));
+
+    expect(hooks.hooks.Notification[0].hooks[0]).toEqual({
+      type: 'command',
+      command: '${CLAUDE_PLUGIN_ROOT}/scripts/discode-notification-hook.js',
+      async: true,
+    });
+
+    expect(hooks.hooks.SessionStart[0].hooks[0]).toEqual({
+      type: 'command',
+      command: '${CLAUDE_PLUGIN_ROOT}/scripts/discode-session-hook.js',
+      async: true,
+    });
+
+    expect(hooks.hooks.SessionEnd[0].hooks[0]).toEqual({
+      type: 'command',
+      command: '${CLAUDE_PLUGIN_ROOT}/scripts/discode-session-hook.js',
+      async: true,
+    });
+  });
+
   it('stop hook script contains expected bridge logic', () => {
     const sourceDir = getPluginSourceDir();
     const source = readFileSync(join(sourceDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME), 'utf-8');
     expect(source).toContain('/opencode-event');
     expect(source).toContain('process.env.AGENT_DISCORD_AGENT || "claude"');
     expect(source).toContain('type: "session.idle"');
+  });
+
+  it('notification hook script contains expected bridge logic', () => {
+    const sourceDir = getPluginSourceDir();
+    const source = readFileSync(join(sourceDir, 'scripts', CLAUDE_NOTIFICATION_HOOK_FILENAME), 'utf-8');
+    expect(source).toContain('/opencode-event');
+    expect(source).toContain('process.env.AGENT_DISCORD_AGENT || "claude"');
+    expect(source).toContain('type: "session.notification"');
+    expect(source).toContain('notificationType');
+    expect(source).toContain('input.notification_type');
+  });
+
+  it('session hook script contains expected bridge logic', () => {
+    const sourceDir = getPluginSourceDir();
+    const source = readFileSync(join(sourceDir, 'scripts', CLAUDE_SESSION_HOOK_FILENAME), 'utf-8');
+    expect(source).toContain('/opencode-event');
+    expect(source).toContain('process.env.AGENT_DISCORD_AGENT || "claude"');
+    expect(source).toContain('type: "session.start"');
+    expect(source).toContain('type: "session.end"');
+    expect(source).toContain('hook_event_name');
+    expect(source).toContain('input.source');
+    expect(source).toContain('input.reason');
   });
 
   it('installClaudePlugin copies files to target directory', () => {
@@ -61,10 +111,14 @@ describe('claude plugin installer', () => {
     expect(existsSync(join(pluginDir, '.claude-plugin', 'plugin.json'))).toBe(true);
     expect(existsSync(join(pluginDir, 'hooks', 'hooks.json'))).toBe(true);
     expect(existsSync(join(pluginDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME))).toBe(true);
+    expect(existsSync(join(pluginDir, 'scripts', CLAUDE_NOTIFICATION_HOOK_FILENAME))).toBe(true);
+    expect(existsSync(join(pluginDir, 'scripts', CLAUDE_SESSION_HOOK_FILENAME))).toBe(true);
 
-    // Verify hook script is executable
-    const stats = statSync(join(pluginDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME));
-    expect(stats.mode & 0o755).toBe(0o755);
+    // Verify all hook scripts are executable
+    for (const script of [CLAUDE_STOP_HOOK_FILENAME, CLAUDE_NOTIFICATION_HOOK_FILENAME, CLAUDE_SESSION_HOOK_FILENAME]) {
+      const stats = statSync(join(pluginDir, 'scripts', script));
+      expect(stats.mode & 0o755).toBe(0o755);
+    }
   });
 
   it('source plugin directory contains discode-send skill', () => {

@@ -104,7 +104,10 @@ export async function newCommand(
     } else {
       const installed = agentRegistry.getAll().filter((a) => a.isInstalled());
       if (installed.length === 0) {
-        console.error(chalk.red('No agent CLIs found. Install one first (claude, gemini, opencode).'));
+        console.error(chalk.red('No agent CLIs found. Install one first:'));
+        console.log(chalk.gray('  Claude:   npm install -g @anthropic-ai/claude-code'));
+        console.log(chalk.gray('  Gemini:   npm install -g @anthropic-ai/gemini-cli'));
+        console.log(chalk.gray('  OpenCode: go install github.com/anthropics/opencode@latest'));
         process.exit(1);
       } else if (installed.length === 1) {
         agentName = installed[0].config.name;

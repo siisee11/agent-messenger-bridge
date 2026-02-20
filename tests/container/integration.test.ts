@@ -23,6 +23,7 @@ const containerMocks = vi.hoisted(() => ({
   findDockerSocket: vi.fn().mockReturnValue('/var/run/docker.sock'),
   isContainerRunning: vi.fn().mockReturnValue(true),
   ensureImage: vi.fn(),
+  removeImage: vi.fn(),
   ChromeMcpProxy: class MockChromeMcpProxy {
     async start() { return false; }
     stop() {}
@@ -30,7 +31,8 @@ const containerMocks = vi.hoisted(() => ({
     getPort() { return 18471; }
   },
   WORKSPACE_DIR: '/workspace',
-  FULL_IMAGE_TAG: 'discode-agent:1',
+  imageTagFor: (agentType: string) => `discode-agent-${agentType}:1`,
+  IMAGE_PREFIX: 'discode-agent',
 }));
 
 const syncInstanceMethods = vi.hoisted(() => ({
@@ -66,6 +68,8 @@ const pluginInstallerMocks = vi.hoisted(() => ({
 
 vi.mock('../../src/opencode/plugin-installer.js', () => ({
   installOpencodePlugin: pluginInstallerMocks.installOpencodePlugin,
+  getPluginSourcePath: () => '/mock/src/opencode/plugin/agent-opencode-bridge-plugin.ts',
+  OPENCODE_PLUGIN_FILENAME: 'agent-opencode-bridge-plugin.ts',
 }));
 
 vi.mock('../../src/claude/plugin-installer.js', () => ({
@@ -74,6 +78,8 @@ vi.mock('../../src/claude/plugin-installer.js', () => ({
 
 vi.mock('../../src/gemini/hook-installer.js', () => ({
   installGeminiHook: pluginInstallerMocks.installGeminiHook,
+  getGeminiHookSourcePath: () => '/mock/src/gemini/hook/discode-after-agent-hook.js',
+  GEMINI_AFTER_AGENT_HOOK_FILENAME: 'discode-after-agent-hook.js',
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────
@@ -359,6 +365,83 @@ describe('container mode integration', () => {
       if (createArgs.command) {
         expect(createArgs.command).toContain('--plugin-dir');
         expect(createArgs.command).toContain('/home/coder/.claude/plugins/discode-claude-bridge');
+      }
+    });
+
+    it('injects OpenCode plugin into container for opencode agent', async () => {
+      const registry = createMockRegistry();
+      // Override the adapter to be opencode
+      registry._mockAdapter.config = {
+        name: 'opencode',
+        displayName: 'OpenCode',
+        command: 'opencode',
+        channelSuffix: 'opencode',
+      };
+      registry._mockAdapter.getStartCommand.mockReturnValue('opencode');
+
+      const bridge = new AgentBridge({
+        messaging: createMockMessaging(),
+        runtime: createMockRuntime(),
+        stateManager: createMockStateManager(),
+        registry,
+        config: createMockConfig({ container: { enabled: true } }),
+      });
+
+      await bridge.setupProject('test', '/test', { opencode: true });
+
+      // Should inject plugin file into the container
+      expect(containerMocks.injectFile).toHaveBeenCalledWith(
+        'abc123def456',
+        '/mock/src/opencode/plugin/agent-opencode-bridge-plugin.ts',
+        '/home/coder/.opencode/plugins',
+        undefined,
+      );
+    });
+
+    it('injects Gemini hook into container for gemini agent', async () => {
+      const registry = createMockRegistry();
+      registry._mockAdapter.config = {
+        name: 'gemini',
+        displayName: 'Gemini CLI',
+        command: 'gemini',
+        channelSuffix: 'gemini',
+      };
+      registry._mockAdapter.getStartCommand.mockReturnValue('gemini');
+
+      const bridge = new AgentBridge({
+        messaging: createMockMessaging(),
+        runtime: createMockRuntime(),
+        stateManager: createMockStateManager(),
+        registry,
+        config: createMockConfig({ container: { enabled: true } }),
+      });
+
+      await bridge.setupProject('test', '/test', { gemini: true });
+
+      expect(containerMocks.injectFile).toHaveBeenCalledWith(
+        'abc123def456',
+        '/mock/src/gemini/hook/discode-after-agent-hook.js',
+        '/home/coder/.gemini/discode-hooks',
+        undefined,
+      );
+    });
+
+    it('does not inject OpenCode plugin for claude agent', async () => {
+      const bridge = new AgentBridge({
+        messaging: createMockMessaging(),
+        runtime: createMockRuntime(),
+        stateManager: createMockStateManager(),
+        registry: createMockRegistry(),
+        config: createMockConfig({ container: { enabled: true } }),
+      });
+
+      await bridge.setupProject('test', '/test', { claude: true });
+
+      // injectFile is called for message-router file injection etc.,
+      // but NOT for opencode plugin or gemini hook paths
+      for (const call of containerMocks.injectFile.mock.calls) {
+        expect(call[2]).not.toBe('/home/coder/.opencode/plugins');
+        expect(call[2]).not.toBe('/home/coder/.gemini/discode-hooks');
       }
     });
 

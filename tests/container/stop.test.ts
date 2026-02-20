@@ -57,6 +57,7 @@ vi.mock('../../src/config/index.js', () => ({
     runtimeMode: 'pty',
     container: { enabled: true, socketPath: '/test/docker.sock' },
   },
+  getConfigValue: vi.fn().mockReturnValue(undefined),
 }));
 
 // Mock channel service

@@ -11,7 +11,7 @@ import {
 
 type FetchCall = { url: string; init: { method?: string; headers?: Record<string, string>; body?: string } };
 
-function createPluginHarness() {
+function createPluginHarness(extraEnv?: Record<string, string>) {
   const source = readFileSync(getPluginSourcePath(), 'utf-8').replace(
     'export const AgentDiscordBridgePlugin',
     'const AgentDiscordBridgePlugin'
@@ -39,6 +39,7 @@ function createPluginHarness() {
     env: {
       AGENT_DISCORD_PROJECT: 'demo-project',
       AGENT_DISCORD_PORT: '18470',
+      ...extraEnv,
     },
   };
 
@@ -78,6 +79,58 @@ describe('opencode plugin installer', () => {
     const content = readFileSync(result, 'utf-8');
     expect(content).toContain('AgentDiscordBridgePlugin');
     expect(content).toContain('/opencode-event');
+  });
+
+  it('uses AGENT_DISCORD_HOSTNAME for endpoint when set', async () => {
+    const harness = createPluginHarness({ AGENT_DISCORD_HOSTNAME: 'host.docker.internal' });
+    const plugin = await harness.create();
+
+    await plugin.event({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'msg-host', role: 'assistant' } },
+      },
+    });
+    await plugin.event({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: { id: 'p1', type: 'text', messageID: 'msg-host', text: 'hello' },
+        },
+      },
+    });
+    await plugin.event({
+      event: { type: 'session.idle', properties: {} },
+    });
+
+    expect(harness.calls).toHaveLength(1);
+    expect(harness.calls[0].url).toBe('http://host.docker.internal:18470/opencode-event');
+  });
+
+  it('defaults to 127.0.0.1 when AGENT_DISCORD_HOSTNAME is not set', async () => {
+    const harness = createPluginHarness();
+    const plugin = await harness.create();
+
+    await plugin.event({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'msg-local', role: 'assistant' } },
+      },
+    });
+    await plugin.event({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: { id: 'p1', type: 'text', messageID: 'msg-local', text: 'hi' },
+        },
+      },
+    });
+    await plugin.event({
+      event: { type: 'session.idle', properties: {} },
+    });
+
+    expect(harness.calls).toHaveLength(1);
+    expect(harness.calls[0].url).toBe('http://127.0.0.1:18470/opencode-event');
   });
 
   it('posts final assistant text on session.idle from message parts', async () => {
@@ -221,5 +274,518 @@ describe('opencode plugin installer', () => {
     const payload = parseBody(harness.calls[0]);
     expect(payload.type).toBe('session.idle');
     expect(payload.text).toBe('hello world');
+  });
+
+  describe('session.created event', () => {
+    it('posts session.start with title from session info', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.created',
+          properties: {
+            info: { id: 'sess-1', title: 'My Session', version: '1.0', directory: '/proj' },
+          },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.start');
+      expect(payload.source).toBe('startup');
+      expect(payload.text).toBe('My Session');
+      expect(payload.projectName).toBe('demo-project');
+      expect(payload.agentType).toBe('opencode');
+    });
+
+    it('handles session.created without title', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'sess-2' } },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.start');
+      expect(payload.text).toBe('');
+    });
+
+    it('handles session.created without info', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.created', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.start');
+      expect(payload.source).toBe('startup');
+      expect(payload.text).toBe('');
+    });
+
+    it('includes instanceId when set', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_INSTANCE: 'inst-1' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.created', properties: { info: { id: 's1' } } },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.instanceId).toBe('inst-1');
+    });
+
+    it('omits instanceId when empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_INSTANCE: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.created', properties: { info: { id: 's1' } } },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.instanceId).toBeUndefined();
+    });
+
+    it('does nothing when AGENT_DISCORD_PROJECT is empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_PROJECT: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.created', properties: { info: { id: 's1' } } },
+      });
+
+      expect(harness.calls).toHaveLength(0);
+    });
+  });
+
+  describe('session.deleted event', () => {
+    it('posts session.end with reason deleted', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.deleted',
+          properties: { info: { id: 'sess-del-1' } },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.end');
+      expect(payload.reason).toBe('deleted');
+      expect(payload.projectName).toBe('demo-project');
+      expect(payload.agentType).toBe('opencode');
+    });
+
+    it('includes instanceId when set', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_INSTANCE: 'inst-2' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.deleted', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.instanceId).toBe('inst-2');
+    });
+
+    it('does nothing when AGENT_DISCORD_PROJECT is empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_PROJECT: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.deleted', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(0);
+    });
+  });
+
+  describe('permission.updated event', () => {
+    it('posts session.notification with permission title', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: {
+            id: 'perm-1',
+            type: 'shell',
+            title: 'Allow running npm install?',
+            sessionID: 'sess-1',
+            messageID: 'msg-1',
+            metadata: {},
+            time: { created: Date.now() },
+          },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.notification');
+      expect(payload.notificationType).toBe('permission_prompt');
+      expect(payload.text).toBe('Allow running npm install?');
+      expect(payload.projectName).toBe('demo-project');
+      expect(payload.agentType).toBe('opencode');
+    });
+
+    it('falls back to permission type when title is empty', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: {
+            id: 'perm-2',
+            type: 'file_write',
+            title: '',
+            sessionID: 'sess-1',
+            messageID: 'msg-2',
+            metadata: {},
+            time: { created: Date.now() },
+          },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('file_write');
+    });
+
+    it('falls back to permission type when title is missing', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: {
+            id: 'perm-3',
+            type: 'shell',
+            sessionID: 'sess-1',
+            messageID: 'msg-3',
+            metadata: {},
+            time: { created: Date.now() },
+          },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('shell');
+    });
+
+    it('handles missing title and type', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: {},
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.notificationType).toBe('permission_prompt');
+      expect(payload.text).toBe('unknown');
+    });
+
+    it('includes instanceId when set', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_INSTANCE: 'inst-3' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: { id: 'p1', type: 'shell', title: 'test', sessionID: 's1', messageID: 'm1', metadata: {}, time: { created: 0 } },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.instanceId).toBe('inst-3');
+    });
+
+    it('does nothing when AGENT_DISCORD_PROJECT is empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_PROJECT: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'permission.updated',
+          properties: { id: 'p1', type: 'shell', title: 'test', sessionID: 's1', messageID: 'm1', metadata: {}, time: { created: 0 } },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(0);
+    });
+  });
+
+  describe('session.error event', () => {
+    it('posts session.error with error text from properties.error', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.error',
+          properties: { error: 'Connection timed out' },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.error');
+      expect(payload.text).toBe('Connection timed out');
+      expect(payload.projectName).toBe('demo-project');
+      expect(payload.agentType).toBe('opencode');
+    });
+
+    it('extracts text from nested error object', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.error',
+          properties: { error: { type: 'text', text: 'Nested error message' } },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('Nested error message');
+    });
+
+    it('falls back to event object text when error property is empty', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: {
+          type: 'session.error',
+          properties: {},
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      // When properties.error is undefined, textFromNode falls through to the
+      // event object itself, extracting "session.error" from the type field
+      expect(payload.text).toBe('session.error');
+    });
+
+    it('falls back to "unknown error" when all text extraction yields empty', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      // Empty string error trims to empty, triggering the fallback
+      await plugin.event({
+        event: {
+          type: 'session.error',
+          properties: { error: '   ' },
+        },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('unknown error');
+    });
+
+    it('includes instanceId when set', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_INSTANCE: 'inst-err' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.error', properties: { error: 'fail' } },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.instanceId).toBe('inst-err');
+    });
+
+    it('does nothing when AGENT_DISCORD_PROJECT is empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_PROJECT: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.error', properties: { error: 'fail' } },
+      });
+
+      expect(harness.calls).toHaveLength(0);
+    });
+  });
+
+  describe('session.idle event', () => {
+    it('posts session.idle with empty text when no messages accumulated', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.idle', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.type).toBe('session.idle');
+      expect(payload.text).toBe('');
+    });
+
+    it('does not post when AGENT_DISCORD_PROJECT is empty', async () => {
+      const harness = createPluginHarness({ AGENT_DISCORD_PROJECT: '' });
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'session.idle', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(0);
+    });
+
+    it('uses latest assistant text from multiple messages', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      // First message
+      await plugin.event({
+        event: { type: 'message.updated', properties: { info: { id: 'msg-a', role: 'assistant' } } },
+      });
+      await plugin.event({
+        event: {
+          type: 'message.part.updated',
+          properties: { part: { id: 'p1', type: 'text', messageID: 'msg-a', text: 'First reply' } },
+        },
+      });
+
+      // Second message (latest)
+      await plugin.event({
+        event: { type: 'message.updated', properties: { info: { id: 'msg-b', role: 'assistant' } } },
+      });
+      await plugin.event({
+        event: {
+          type: 'message.part.updated',
+          properties: { part: { id: 'p2', type: 'text', messageID: 'msg-b', text: 'Second reply' } },
+        },
+      });
+
+      await plugin.event({
+        event: { type: 'session.idle', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('Second reply');
+    });
+
+    it('ignores non-assistant messages', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      // User message should not be tracked
+      await plugin.event({
+        event: { type: 'message.updated', properties: { info: { id: 'msg-user', role: 'user' } } },
+      });
+      await plugin.event({
+        event: {
+          type: 'message.part.updated',
+          properties: { part: { id: 'p1', type: 'text', messageID: 'msg-user', text: 'User text' } },
+        },
+      });
+
+      await plugin.event({
+        event: { type: 'session.idle', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      // User messages should not appear in assistant text
+      expect(payload.text).toBe('');
+    });
+
+    it('ignores non-text parts', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({
+        event: { type: 'message.updated', properties: { info: { id: 'msg-c', role: 'assistant' } } },
+      });
+      await plugin.event({
+        event: {
+          type: 'message.part.updated',
+          properties: { part: { id: 'p1', type: 'tool_call', messageID: 'msg-c', text: '' } },
+        },
+      });
+
+      await plugin.event({
+        event: { type: 'session.idle', properties: {} },
+      });
+
+      expect(harness.calls).toHaveLength(1);
+      const payload = parseBody(harness.calls[0]);
+      expect(payload.text).toBe('');
+    });
+  });
+
+  describe('event edge cases', () => {
+    it('handles null event gracefully', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({ event: null });
+      expect(harness.calls).toHaveLength(0);
+    });
+
+    it('handles event without type', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({ event: { properties: {} } });
+      expect(harness.calls).toHaveLength(0);
+    });
+
+    it('handles unknown event type without posting', async () => {
+      const harness = createPluginHarness();
+      const plugin = await harness.create();
+
+      await plugin.event({ event: { type: 'some.unknown.event', properties: {} } });
+      expect(harness.calls).toHaveLength(0);
+    });
+  });
+
+  it('plugin source contains session.created handler', () => {
+    const source = readFileSync(getPluginSourcePath(), 'utf-8');
+    expect(source).toContain('session.created');
+    expect(source).toContain('session.start');
+  });
+
+  it('plugin source contains session.deleted handler', () => {
+    const source = readFileSync(getPluginSourcePath(), 'utf-8');
+    expect(source).toContain('session.deleted');
+    expect(source).toContain('session.end');
+  });
+
+  it('plugin source contains permission.updated handler', () => {
+    const source = readFileSync(getPluginSourcePath(), 'utf-8');
+    expect(source).toContain('permission.updated');
+    expect(source).toContain('session.notification');
+    expect(source).toContain('permission_prompt');
   });
 });

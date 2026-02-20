@@ -1,10 +1,22 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import { escapeShellArg } from '../infra/shell-escape.js';
 
 export const GEMINI_HOOK_NAME = 'discode-gemini-after-agent';
 export const GEMINI_AFTER_AGENT_HOOK_FILENAME = 'discode-after-agent-hook.js';
+export const GEMINI_NOTIFICATION_HOOK_FILENAME = 'discode-notification-hook.js';
+export const GEMINI_SESSION_HOOK_FILENAME = 'discode-session-hook.js';
+export const GEMINI_NOTIFICATION_HOOK_NAME = 'discode-gemini-notification';
+export const GEMINI_SESSION_HOOK_NAME = 'discode-gemini-session';
+
+/** All hook registrations: [eventName, hookName, filename] */
+const HOOK_REGISTRATIONS: Array<[string, string, string]> = [
+  ['AfterAgent', GEMINI_HOOK_NAME, GEMINI_AFTER_AGENT_HOOK_FILENAME],
+  ['Notification', GEMINI_NOTIFICATION_HOOK_NAME, GEMINI_NOTIFICATION_HOOK_FILENAME],
+  ['SessionStart', GEMINI_SESSION_HOOK_NAME, GEMINI_SESSION_HOOK_FILENAME],
+  ['SessionEnd', GEMINI_SESSION_HOOK_NAME, GEMINI_SESSION_HOOK_FILENAME],
+];
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -26,17 +38,17 @@ function getHookCommand(hookPath: string): string {
   return escapeShellArg(hookPath);
 }
 
-function ensureHookEntry(settings: Record<string, unknown>, hookPath: string): boolean {
+function ensureHookEntry(settings: Record<string, unknown>, eventName: string, hookName: string, hookPath: string): boolean {
   const hooksRoot = asObject(settings.hooks) || {};
-  const existingAfterAgent = Array.isArray(hooksRoot.AfterAgent)
-    ? [...hooksRoot.AfterAgent]
+  const existingEntries = Array.isArray(hooksRoot[eventName])
+    ? [...hooksRoot[eventName]]
     : [];
   const hookCommand = getHookCommand(hookPath);
 
   let changed = false;
   let matchedGroup = false;
 
-  const updatedAfterAgent = existingAfterAgent.map((entry) => {
+  const updatedEntries = existingEntries.map((entry) => {
     const group = asObject(entry);
     if (!group) return entry;
 
@@ -53,14 +65,14 @@ function ensureHookEntry(settings: Record<string, unknown>, hookPath: string): b
     const hasExisting = groupHooks.some((item) => {
       const hook = asObject(item);
       if (!hook) return false;
-      if (typeof hook.name === 'string' && hook.name === GEMINI_HOOK_NAME) return true;
+      if (typeof hook.name === 'string' && hook.name === hookName) return true;
       if (typeof hook.command === 'string' && hook.command === hookCommand) return true;
       return false;
     });
 
     if (!hasExisting) {
       groupHooks.push({
-        name: GEMINI_HOOK_NAME,
+        name: hookName,
         type: 'command',
         command: hookCommand,
       });
@@ -75,11 +87,11 @@ function ensureHookEntry(settings: Record<string, unknown>, hookPath: string): b
   });
 
   if (!matchedGroup) {
-    updatedAfterAgent.push({
+    updatedEntries.push({
       matcher: '*',
       hooks: [
         {
-          name: GEMINI_HOOK_NAME,
+          name: hookName,
           type: 'command',
           command: hookCommand,
         },
@@ -90,19 +102,19 @@ function ensureHookEntry(settings: Record<string, unknown>, hookPath: string): b
 
   if (!changed) return false;
 
-  hooksRoot.AfterAgent = updatedAfterAgent;
+  hooksRoot[eventName] = updatedEntries;
   settings.hooks = hooksRoot;
   return true;
 }
 
-function pruneHookEntry(settings: Record<string, unknown>, hookPath: string): boolean {
+function pruneHookEntry(settings: Record<string, unknown>, eventName: string, hookName: string, hookPath: string): boolean {
   const hooksRoot = asObject(settings.hooks);
   if (!hooksRoot) return false;
-  if (!Array.isArray(hooksRoot.AfterAgent)) return false;
+  if (!Array.isArray(hooksRoot[eventName])) return false;
 
   let changed = false;
   const nextGroups: Record<string, unknown>[] = [];
-  for (const groupEntry of hooksRoot.AfterAgent) {
+  for (const groupEntry of hooksRoot[eventName]) {
     const group = asObject(groupEntry);
     if (!group) {
       nextGroups.push(groupEntry as Record<string, unknown>);
@@ -114,7 +126,7 @@ function pruneHookEntry(settings: Record<string, unknown>, hookPath: string): bo
       const hook = asObject(hookEntry);
       if (!hook) return true;
 
-      const byName = typeof hook.name === 'string' && hook.name === GEMINI_HOOK_NAME;
+      const byName = typeof hook.name === 'string' && hook.name === hookName;
       const byCommand = typeof hook.command === 'string' && hook.command === hookPath;
       if (byName || byCommand) {
         changed = true;
@@ -135,7 +147,7 @@ function pruneHookEntry(settings: Record<string, unknown>, hookPath: string): bo
   }
 
   if (!changed) return false;
-  hooksRoot.AfterAgent = nextGroups;
+  hooksRoot[eventName] = nextGroups;
   settings.hooks = hooksRoot;
   return true;
 }
@@ -154,51 +166,78 @@ export function getGeminiSettingsPath(targetGeminiDir?: string): string {
   return join(geminiDir, 'settings.json');
 }
 
-export function getGeminiHookSourcePath(): string {
+export function getGeminiHookSourcePath(filename?: string): string {
+  const hookFile = filename ?? GEMINI_AFTER_AGENT_HOOK_FILENAME;
   const candidates = [
-    join(import.meta.dirname, 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME),             // source layout: src/gemini/
-    join(import.meta.dirname, 'gemini', 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME),   // bundled chunk in dist/
-    join(import.meta.dirname, '../gemini', 'hook', GEMINI_AFTER_AGENT_HOOK_FILENAME), // bundled entry in dist/src/
-    join(dirname(process.execPath), '..', 'resources', 'gemini-hook', GEMINI_AFTER_AGENT_HOOK_FILENAME), // compiled binary
+    join(import.meta.dirname, 'hook', hookFile),             // source layout: src/gemini/
+    join(import.meta.dirname, 'gemini', 'hook', hookFile),   // bundled chunk in dist/
+    join(import.meta.dirname, '../gemini', 'hook', hookFile), // bundled entry in dist/src/
+    join(dirname(process.execPath), '..', 'resources', 'gemini-hook', hookFile), // compiled binary
   ];
   return candidates.find(p => existsSync(p)) ?? candidates[0];
 }
 
 export function installGeminiHook(_projectPath?: string, targetGeminiDir?: string): string {
   const hookDir = getGeminiHookDir(targetGeminiDir);
-  const hookPath = join(hookDir, GEMINI_AFTER_AGENT_HOOK_FILENAME);
-  const sourcePath = getGeminiHookSourcePath();
   const settingsPath = getGeminiSettingsPath(targetGeminiDir);
 
   mkdirSync(hookDir, { recursive: true });
-  copyFileSync(sourcePath, hookPath);
-  chmodSync(hookPath, 0o755);
 
+  // Copy all hook scripts and make them executable
+  const hookFiles = [GEMINI_AFTER_AGENT_HOOK_FILENAME, GEMINI_NOTIFICATION_HOOK_FILENAME, GEMINI_SESSION_HOOK_FILENAME];
+  for (const filename of hookFiles) {
+    const sourcePath = getGeminiHookSourcePath(filename);
+    const destPath = join(hookDir, filename);
+    copyFileSync(sourcePath, destPath);
+    chmodSync(destPath, 0o755);
+  }
+
+  // Register all hooks in settings.json
   const settings = parseSettings(settingsPath);
-  const changed = ensureHookEntry(settings, hookPath);
+  let changed = false;
+  for (const [eventName, hookName, filename] of HOOK_REGISTRATIONS) {
+    const hookPath = join(hookDir, filename);
+    if (ensureHookEntry(settings, eventName, hookName, hookPath)) {
+      changed = true;
+    }
+  }
+
   if (changed) {
     writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
   } else if (!existsSync(settingsPath)) {
     writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
   }
 
-  return hookPath;
+  return join(hookDir, GEMINI_AFTER_AGENT_HOOK_FILENAME);
 }
 
 export function removeGeminiHook(targetGeminiDir?: string): boolean {
   const hookDir = getGeminiHookDir(targetGeminiDir);
-  const hookPath = join(hookDir, GEMINI_AFTER_AGENT_HOOK_FILENAME);
   const settingsPath = getGeminiSettingsPath(targetGeminiDir);
 
   let changed = false;
-  if (existsSync(hookPath)) {
-    rmSync(hookPath, { force: true });
-    changed = true;
+
+  // Remove all hook script files
+  const hookFiles = [GEMINI_AFTER_AGENT_HOOK_FILENAME, GEMINI_NOTIFICATION_HOOK_FILENAME, GEMINI_SESSION_HOOK_FILENAME];
+  for (const filename of hookFiles) {
+    const hookPath = join(hookDir, filename);
+    if (existsSync(hookPath)) {
+      rmSync(hookPath, { force: true });
+      changed = true;
+    }
   }
 
+  // Remove all hook entries from settings.json
   if (existsSync(settingsPath)) {
     const settings = parseSettings(settingsPath);
-    if (pruneHookEntry(settings, hookPath)) {
+    let settingsChanged = false;
+    for (const [eventName, hookName, filename] of HOOK_REGISTRATIONS) {
+      const hookPath = join(hookDir, filename);
+      if (pruneHookEntry(settings, eventName, hookName, hookPath)) {
+        settingsChanged = true;
+      }
+    }
+    if (settingsChanged) {
       writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf-8');
       changed = true;
     }

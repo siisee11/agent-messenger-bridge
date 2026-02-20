@@ -12,7 +12,8 @@ export const AgentDiscordBridgePlugin = async () => {
   const agentType = process.env.AGENT_DISCORD_AGENT || "opencode";
   const instanceId = process.env.AGENT_DISCORD_INSTANCE || "";
   const port = process.env.AGENT_DISCORD_PORT || "18470";
-  const endpoint = "http://127.0.0.1:" + port + "/opencode-event";
+  const hostname = process.env.AGENT_DISCORD_HOSTNAME || "127.0.0.1";
+  const endpoint = "http://" + hostname + ":" + port + "/opencode-event";
 
   /** @param {Record<string, unknown>} payload */
   const post = async (payload) => {
@@ -143,6 +144,25 @@ export const AgentDiscordBridgePlugin = async () => {
 
       if (eventType === "message.part.updated") {
         updateAssistantTextPart(properties.part || eventObj.part, properties.delta || eventObj.delta);
+      }
+
+      if (eventType === "session.created") {
+        const info = toObject(properties.info || eventObj.info);
+        const title = info && typeof info.title === "string" ? info.title : "";
+        await post({ type: "session.start", source: "startup", model: "", text: title });
+        return;
+      }
+
+      if (eventType === "session.deleted") {
+        await post({ type: "session.end", reason: "deleted" });
+        return;
+      }
+
+      if (eventType === "permission.updated") {
+        const title = typeof properties.title === "string" ? properties.title : "";
+        const permType = typeof properties.type === "string" ? properties.type : "unknown";
+        await post({ type: "session.notification", notificationType: "permission_prompt", text: title || permType });
+        return;
       }
 
       if (eventType === "session.error") {

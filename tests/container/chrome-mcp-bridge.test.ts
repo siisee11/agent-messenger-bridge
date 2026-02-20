@@ -35,7 +35,7 @@ vi.mock('fs', () => ({
 
 vi.mock('../../src/container/image.js', () => ({
   ensureImage: vi.fn(),
-  FULL_IMAGE_TAG: 'discode-agent:1',
+  imageTagFor: (agentType: string) => `discode-agent-${agentType}:1`,
 }));
 
 import { join } from 'path';

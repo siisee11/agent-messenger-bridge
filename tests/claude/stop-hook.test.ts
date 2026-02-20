@@ -6,8 +6,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { Script, createContext } from 'vm';
 
@@ -17,21 +18,17 @@ const hookPath = join(__dir, '../../src/claude/plugin/scripts/discode-stop-hook.
 type ExtractTextBlocksFn = (node: unknown, depth?: number) => string[];
 type ReadAssistantEntryFn = (entry: unknown) => { messageId: string; text: string } | null;
 type ParseTurnTextsFn = (tail: string) => { displayText: string; turnText: string };
+type ReadTailFn = (filePath: string, maxBytes: number) => string;
 
 function loadHookFunctions() {
   const raw = readFileSync(hookPath, 'utf-8');
   // Strip the self-executing main() so it doesn't run
   const src = raw.replace(/main\(\)\.catch[\s\S]*$/, '');
 
+  const realFs = require('fs');
   const ctx = createContext({
     require: (mod: string) => {
-      if (mod === 'fs') return {
-        readFileSync: () => '',
-        openSync: () => 0,
-        readSync: () => 0,
-        closeSync: () => {},
-        statSync: () => ({ size: 0 }),
-      };
+      if (mod === 'fs') return realFs;
       return {};
     },
     process: { env: {}, stdin: { isTTY: true } },
@@ -56,10 +53,11 @@ function loadHookFunctions() {
     extractTextBlocks: (ctx as any).extractTextBlocks as ExtractTextBlocksFn,
     readAssistantEntry: (ctx as any).readAssistantEntry as ReadAssistantEntryFn,
     parseTurnTexts: (ctx as any).parseTurnTexts as ParseTurnTextsFn,
+    readTail: (ctx as any).readTail as ReadTailFn,
   };
 }
 
-const { extractTextBlocks, readAssistantEntry, parseTurnTexts } = loadHookFunctions();
+const { extractTextBlocks, readAssistantEntry, parseTurnTexts, readTail } = loadHookFunctions();
 
 // ── extractTextBlocks ────────────────────────────────────────────────
 
@@ -313,5 +311,118 @@ describe('parseTurnTexts', () => {
     const result = parseTurnTexts(tail);
     expect(result.displayText).toBe('');
     expect(result.turnText).toBe('');
+  });
+
+  it('handles trailing empty lines', () => {
+    const tail = [
+      line({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'text', text: 'Answer' }] } }),
+      '',
+      '',
+    ].join('\n');
+
+    const result = parseTurnTexts(tail);
+    expect(result.displayText).toBe('Answer');
+  });
+
+  it('handles assistant entry without messageId', () => {
+    const tail = line({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'No ID entry' }] },
+    });
+    const result = parseTurnTexts(tail);
+    expect(result.displayText).toBe('No ID entry');
+    expect(result.turnText).toBe('No ID entry');
+  });
+});
+
+// ── readTail ──────────────────────────────────────────────────────────
+
+describe('readTail', () => {
+  let tempDir: string;
+
+  function setup() {
+    tempDir = mkdtempSync(join(tmpdir(), 'discode-stophook-test-'));
+  }
+
+  function teardown() {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+
+  it('reads the entire file when maxBytes >= file size', () => {
+    setup();
+    try {
+      const filePath = join(tempDir, 'small.jsonl');
+      writeFileSync(filePath, 'hello world');
+      const result = readTail(filePath, 65536);
+      expect(result).toBe('hello world');
+    } finally {
+      teardown();
+    }
+  });
+
+  it('reads only the tail when maxBytes < file size', () => {
+    setup();
+    try {
+      const filePath = join(tempDir, 'large.jsonl');
+      writeFileSync(filePath, 'AAAA' + 'BBBB');
+      const result = readTail(filePath, 4);
+      expect(result).toBe('BBBB');
+    } finally {
+      teardown();
+    }
+  });
+
+  it('returns empty string for empty file', () => {
+    setup();
+    try {
+      const filePath = join(tempDir, 'empty.jsonl');
+      writeFileSync(filePath, '');
+      const result = readTail(filePath, 65536);
+      expect(result).toBe('');
+    } finally {
+      teardown();
+    }
+  });
+
+  it('returns empty string for non-existent file', () => {
+    const result = readTail('/tmp/nonexistent-file-' + Date.now() + '.jsonl', 65536);
+    expect(result).toBe('');
+  });
+
+  it('handles multi-line JSONL transcript', () => {
+    setup();
+    try {
+      const filePath = join(tempDir, 'transcript.jsonl');
+      const lines = [
+        JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: 'question' }] } }),
+        JSON.stringify({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'text', text: 'answer' }] } }),
+      ];
+      writeFileSync(filePath, lines.join('\n'));
+      const tail = readTail(filePath, 65536);
+      // Should be parseable by parseTurnTexts
+      const result = parseTurnTexts(tail);
+      expect(result.displayText).toBe('answer');
+    } finally {
+      teardown();
+    }
+  });
+
+  it('reads tail of large transcript correctly', () => {
+    setup();
+    try {
+      const filePath = join(tempDir, 'large-transcript.jsonl');
+      // Write many lines, then check that tail captures the last entries
+      const filler = Array.from({ length: 100 }, (_, i) =>
+        JSON.stringify({ type: 'progress', index: i })
+      ).join('\n');
+      const lastLine = JSON.stringify({ type: 'assistant', message: { id: 'final', content: [{ type: 'text', text: 'Final answer' }] } });
+      writeFileSync(filePath, filler + '\n' + lastLine);
+
+      // Read only last 512 bytes (should capture the last line)
+      const tail = readTail(filePath, 512);
+      expect(tail).toContain('Final answer');
+    } finally {
+      teardown();
+    }
   });
 });

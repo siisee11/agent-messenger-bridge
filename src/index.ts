@@ -24,6 +24,8 @@ import { installFileInstruction } from './infra/file-instruction.js';
 import { installDiscodeSendScript } from './infra/send-script.js';
 import { buildAgentLaunchEnv, buildContainerEnv, buildExportPrefix, withClaudePluginDir } from './policy/agent-launch.js';
 import { installAgentIntegration } from './policy/agent-integration.js';
+import { getPluginSourcePath as getOpencodePluginSourcePath } from './opencode/plugin-installer.js';
+import { getGeminiHookSourcePath, GEMINI_AFTER_AGENT_HOOK_FILENAME, GEMINI_NOTIFICATION_HOOK_FILENAME, GEMINI_SESSION_HOOK_FILENAME } from './gemini/hook-installer.js';
 import { resolveProjectWindowName, toProjectScopedName } from './policy/window-naming.js';
 import {
   isDockerAvailable,
@@ -31,6 +33,7 @@ import {
   buildDockerStartCommand,
   injectCredentials,
   injectChromeMcpBridge,
+  injectFile,
   ChromeMcpProxy,
   WORKSPACE_DIR,
 } from './container/index.js';
@@ -146,13 +149,18 @@ export class AgentBridge {
     // Start Chrome MCP proxy if a Chrome extension socket exists.
     // This bridges the host's Chrome extension Unix socket to TCP
     // so containers can reach it via host.docker.internal.
-    const proxy = new ChromeMcpProxy({ port: (this.bridgeConfig.hookServerPort || 18470) + 1 });
-    if (await proxy.start()) {
-      this.chromeMcpProxy = proxy;
-      console.log(`🌐 Chrome MCP proxy listening on port ${proxy.getPort()}`);
+    try {
+      const proxy = new ChromeMcpProxy({ port: (this.bridgeConfig.hookServerPort || 18470) + 1 });
+      if (await proxy.start()) {
+        this.chromeMcpProxy = proxy;
+        console.log(`🌐 Chrome MCP proxy listening on port ${proxy.getPort()}`);
+      }
+    } catch {
+      // Non-critical: proxy failure should not prevent daemon startup.
     }
 
-    this.projectBootstrap.bootstrapProjects();
+    const projects = this.projectBootstrap.bootstrapProjects();
+    this.injectContainerPlugins(projects);
     this.restoreRuntimeWindowsIfNeeded();
     this.messageRouter.register();
     this.hookServer.start();
@@ -161,6 +169,34 @@ export class AgentBridge {
     console.log('✅ Discode is running');
     console.log(`📡 Server listening on port ${this.bridgeConfig.hookServerPort || 18470}`);
     console.log(`🤖 Registered agents: ${this.registry.getAll().map(a => a.config.displayName).join(', ')}`);
+  }
+
+  /**
+   * Inject agent plugins/hooks into existing container instances on daemon restart.
+   * This ensures containers created before the injection code was added still
+   * get their event hook, and covers cases where the daemon restarts.
+   */
+  private injectContainerPlugins(projects: ReturnType<IStateManager['listProjects']>): void {
+    const socketPath = this.bridgeConfig.container?.socketPath || undefined;
+    for (const rawProject of projects) {
+      const project = normalizeProjectState(rawProject);
+      for (const instance of listProjectInstances(project)) {
+        if (!instance.containerMode || !instance.containerId) continue;
+
+        if (instance.agentType === 'opencode') {
+          const pluginSource = getOpencodePluginSourcePath();
+          if (injectFile(instance.containerId, pluginSource, '/home/coder/.opencode/plugins', socketPath)) {
+            console.log(`🧩 Injected OpenCode plugin into container ${instance.containerId.slice(0, 12)}`);
+          }
+        } else if (instance.agentType === 'gemini') {
+          const geminiHooksDir = '/home/coder/.gemini/discode-hooks';
+          for (const hookFile of [GEMINI_AFTER_AGENT_HOOK_FILENAME, GEMINI_NOTIFICATION_HOOK_FILENAME, GEMINI_SESSION_HOOK_FILENAME]) {
+            injectFile(instance.containerId, getGeminiHookSourcePath(hookFile), geminiHooksDir, socketPath);
+          }
+          console.log(`🪝 Injected Gemini hooks into container ${instance.containerId.slice(0, 12)}`);
+        }
+      }
+    }
   }
 
   async setupProject(
@@ -272,6 +308,7 @@ export class AgentBridge {
       containerId = createContainer({
         containerName,
         projectPath,
+        agentType: adapter.config.name,
         socketPath,
         env: containerEnv,
         command: agentCommand,
@@ -286,6 +323,21 @@ export class AgentBridge {
       const chromeMcpPort = (this.bridgeConfig.hookServerPort || 18470) + 1;
       if (injectChromeMcpBridge(containerId, chromeMcpPort, adapter.config.name, socketPath)) {
         console.log('🌐 Injected Chrome MCP bridge into container');
+      }
+
+      // Inject agent event hook/plugin into the container so responses
+      // come through the structured event hook, not the screen capture fallback.
+      if (adapter.config.name === 'opencode') {
+        const pluginSource = getOpencodePluginSourcePath();
+        if (injectFile(containerId, pluginSource, '/home/coder/.opencode/plugins', socketPath)) {
+          console.log('🧩 Injected OpenCode plugin into container');
+        }
+      } else if (adapter.config.name === 'gemini') {
+        const geminiHooksDir = '/home/coder/.gemini/discode-hooks';
+        for (const hookFile of [GEMINI_AFTER_AGENT_HOOK_FILENAME, GEMINI_NOTIFICATION_HOOK_FILENAME, GEMINI_SESSION_HOOK_FILENAME]) {
+          injectFile(containerId, getGeminiHookSourcePath(hookFile), geminiHooksDir, socketPath);
+        }
+        console.log('🪝 Injected Gemini hooks into container');
       }
 
       // The runtime command becomes `docker start -ai <containerId>`

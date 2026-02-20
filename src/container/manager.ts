@@ -17,7 +17,8 @@ import { execSync, execFileSync } from 'child_process';
 import { existsSync, readFileSync, statSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { homedir, tmpdir } from 'os';
-import { FULL_IMAGE_TAG, ensureImage } from './image.js';
+import type { AgentType } from '../agents/base.js';
+import { imageTagFor, ensureImage } from './image.js';
 
 const WORKSPACE_DIR = '/workspace';
 const MAX_INJECT_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -65,6 +66,7 @@ export function isDockerAvailable(socketPath?: string): boolean {
 export interface ContainerCreateOptions {
   containerName: string;
   projectPath: string;
+  agentType: AgentType;
   socketPath?: string;
   env?: Record<string, string>;
   /** Additional -v volume mounts (e.g. host:container:ro). */
@@ -88,7 +90,7 @@ export function createContainer(options: ContainerCreateOptions): string {
     throw new Error('Docker socket not found. Is Docker running?');
   }
 
-  ensureImage(sock);
+  ensureImage(options.agentType, sock);
 
   // Remove stale container with the same name (left over from a previous run)
   try {
@@ -125,7 +127,7 @@ export function createContainer(options: ContainerCreateOptions): string {
     '--add-host', 'host.docker.internal:host-gateway',
     '-u', `${CONTAINER_UID}:${CONTAINER_GID}`,
     ...envFlags,
-    FULL_IMAGE_TAG,
+    imageTagFor(options.agentType),
     ...(options.command ? ['-c', options.command] : []),
   ];
 
@@ -247,9 +249,9 @@ export function injectFile(
   }
 
   try {
-    // Ensure target directory exists
+    // Ensure target directory exists (run as root so we can create dirs owned by anyone)
     execSync(
-      `docker -H unix://${sock} exec ${containerId} mkdir -p ${containerDir}`,
+      `docker -H unix://${sock} exec -u root ${containerId} mkdir -p ${containerDir}`,
       { timeout: 5000 },
     );
 
@@ -259,10 +261,10 @@ export function injectFile(
       { timeout: 30_000 },
     );
 
-    // Fix ownership
+    // Fix ownership (run as root)
     const filename = basename(hostPath);
     execSync(
-      `docker -H unix://${sock} exec ${containerId} chown ${CONTAINER_UID}:${CONTAINER_GID} ${containerDir}/${filename}`,
+      `docker -H unix://${sock} exec -u root ${containerId} chown ${CONTAINER_UID}:${CONTAINER_GID} ${containerDir}/${filename}`,
       { timeout: 5000 },
     );
 

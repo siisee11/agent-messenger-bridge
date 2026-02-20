@@ -1,9 +1,8 @@
-import { chmodSync, cpSync, existsSync, mkdirSync } from 'fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 
 export const CLAUDE_PLUGIN_NAME = 'discode-claude-bridge';
-export const CLAUDE_STOP_HOOK_FILENAME = 'discode-stop-hook.js';
 
 export function getClaudePluginDir(): string {
   return join(homedir(), '.claude', 'plugins', CLAUDE_PLUGIN_NAME);
@@ -27,7 +26,14 @@ export function installClaudePlugin(_projectPath?: string, targetDir?: string): 
   mkdirSync(pluginDir, { recursive: true });
   cpSync(sourceDir, pluginDir, { recursive: true });
 
-  chmodSync(join(pluginDir, 'scripts', CLAUDE_STOP_HOOK_FILENAME), 0o755);
+  const scriptsDir = join(pluginDir, 'scripts');
+  if (existsSync(scriptsDir)) {
+    for (const file of readdirSync(scriptsDir)) {
+      if (file.endsWith('.js')) {
+        chmodSync(join(scriptsDir, file), 0o755);
+      }
+    }
+  }
 
   return pluginDir;
 }

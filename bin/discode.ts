@@ -24,6 +24,7 @@ import { listCommand } from '../src/cli/commands/list.js';
 import { agentsCommand } from '../src/cli/commands/agents.js';
 import { daemonCommand } from '../src/cli/commands/daemon.js';
 import { uninstallCommand } from '../src/cli/commands/uninstall.js';
+import { logsCommand } from '../src/cli/commands/logs.js';
 import { getDaemonStatus, restartDaemonIfRunning } from '../src/app/daemon-service.js';
 import { addTmuxOptions } from '../src/cli/common/options.js';
 import { confirmYesNo, isInteractiveShell } from '../src/cli/common/interactive.js';
@@ -435,6 +436,14 @@ export async function runCli(rawArgs: string[] = hideBin(process.argv)): Promise
         choices: ['start', 'restart', 'stop', 'status'],
       }),
       withCommandTelemetry('daemon', async (argv: any) => daemonCommand(argv.action))
+    )
+    .command(
+      'logs',
+      'Tail the bridge daemon log',
+      (y: Argv) => y
+        .option('follow', { alias: 'f', type: 'boolean', describe: 'Follow log output (tail -f)' })
+        .option('lines', { alias: 'n', type: 'number', default: 50, describe: 'Number of lines to show' }),
+      withCommandTelemetry('logs', async (argv: any) => logsCommand({ follow: argv.follow, lines: argv.lines }))
     )
     .command(
       'uninstall',

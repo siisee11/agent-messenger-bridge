@@ -498,6 +498,34 @@ export class BridgeHookServer {
       return true;
     }
 
+    if (eventType === 'session.notification') {
+      const notificationType = typeof event.notificationType === 'string' ? event.notificationType : 'unknown';
+      const emojiMap: Record<string, string> = {
+        permission_prompt: '\uD83D\uDD10',
+        idle_prompt: '\uD83D\uDCA4',
+        auth_success: '\uD83D\uDD11',
+        elicitation_dialog: '\u2753',
+      };
+      const emoji = emojiMap[notificationType] || '\uD83D\uDD14';
+      const msg = text || notificationType;
+      await this.deps.messaging.sendToChannel(channelId, `${emoji} ${msg}`);
+      return true;
+    }
+
+    if (eventType === 'session.start') {
+      const source = typeof event.source === 'string' ? event.source : 'unknown';
+      const model = typeof event.model === 'string' ? event.model : '';
+      const modelSuffix = model ? `, ${model}` : '';
+      await this.deps.messaging.sendToChannel(channelId, `\u25B6\uFE0F Session started (${source}${modelSuffix})`);
+      return true;
+    }
+
+    if (eventType === 'session.end') {
+      const reason = typeof event.reason === 'string' ? event.reason : 'unknown';
+      await this.deps.messaging.sendToChannel(channelId, `\u23F9\uFE0F Session ended (${reason})`);
+      return true;
+    }
+
     if (eventType === 'session.idle') {
       // Fire reaction update in background – don't block message delivery
       this.deps.pendingTracker.markCompleted(projectName, instance?.agentType || agentType, instance?.instanceId).catch(() => {});

@@ -4,7 +4,7 @@
  * Provides Docker-based sandboxing for agent processes.
  */
 
-export { ensureImage, imageExists, buildImage, FULL_IMAGE_TAG } from './image.js';
+export { ensureImage, imageExists, buildImage, removeImage, imageTagFor, IMAGE_PREFIX } from './image.js';
 export {
   findDockerSocket,
   isDockerAvailable,

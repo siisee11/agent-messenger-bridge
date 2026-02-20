@@ -2,7 +2,7 @@ import { basename } from 'path';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import { stateManager } from '../../state/index.js';
-import { config } from '../../config/index.js';
+import { config, getConfigValue } from '../../config/index.js';
 import { listProjectInstances, getProjectInstance } from '../../state/instances.js';
 import { deleteChannels } from '../../app/channel-service.js';
 import { removeInstanceFromProjectState, removeProjectState } from '../../app/project-service.js';
@@ -33,8 +33,8 @@ function cleanupContainerInstance(instance: ProjectInstanceState, projectPath: s
       socketPath,
     });
     sync.finalSync();
-  } catch {
-    // Non-critical
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️  Container file sync failed: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   // Stop and remove container
@@ -63,6 +63,7 @@ export async function stopCommand(
   const runtimeMode = effectiveConfig.runtimeMode || 'tmux';
   const requestedInstanceId = options.instance?.trim();
   const runtimePort = effectiveConfig.hookServerPort || 18470;
+  const effectiveKeepChannel = options.keepChannel ?? getConfigValue('keepChannelOnStop') ?? false;
 
   if (runtimeMode === 'pty') {
     if (project && requestedInstanceId) {
@@ -88,7 +89,7 @@ export async function stopCommand(
       // Clean up container if this is a container-mode instance
       cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
 
-      if (!options.keepChannel && instance.channelId) {
+      if (!effectiveKeepChannel && instance.channelId) {
         try {
           const deleted = await deleteChannels([instance.channelId]);
           if (deleted.length > 0) {
@@ -97,6 +98,8 @@ export async function stopCommand(
         } catch (error) {
           console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
         }
+      } else if (effectiveKeepChannel && instance.channelId) {
+        console.log(chalk.gray('   Channel preserved (keepChannelOnStop config)'));
       }
 
       const stateUpdate = removeInstanceFromProjectState(projectName, instance.instanceId);
@@ -130,7 +133,7 @@ export async function stopCommand(
         cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
       }
 
-      if (!options.keepChannel) {
+      if (!effectiveKeepChannel) {
         const channelIds = instances
           .map((instance) => instance.channelId)
           .filter((channelId): channelId is string => !!channelId);
@@ -144,6 +147,8 @@ export async function stopCommand(
             console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
           }
         }
+      } else {
+        console.log(chalk.gray('   Channels preserved (keepChannelOnStop config)'));
       }
 
       removeProjectState(projectName);
@@ -203,7 +208,7 @@ export async function stopCommand(
     // Clean up container if this is a container-mode instance
     cleanupContainerInstance(instance, project.projectPath, effectiveConfig.container?.socketPath);
 
-    if (!options.keepChannel && instance.channelId) {
+    if (!effectiveKeepChannel && instance.channelId) {
       try {
         const deleted = await deleteChannels([instance.channelId]);
         if (deleted.length > 0) {
@@ -212,6 +217,8 @@ export async function stopCommand(
       } catch (error) {
         console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
       }
+    } else if (effectiveKeepChannel && instance.channelId) {
+      console.log(chalk.gray('   Channel preserved (keepChannelOnStop config)'));
     }
 
     const stateUpdate = removeInstanceFromProjectState(projectName, instance.instanceId);
@@ -276,7 +283,7 @@ export async function stopCommand(
     }
   }
 
-  if (project && !options.keepChannel) {
+  if (project && !effectiveKeepChannel) {
     const channelIds = listProjectInstances(project)
       .map((instance) => instance.channelId)
       .filter((channelId): channelId is string => !!channelId);
@@ -290,6 +297,8 @@ export async function stopCommand(
         console.log(chalk.yellow(`⚠️  Could not delete Discord channel: ${error instanceof Error ? error.message : String(error)}`));
       }
     }
+  } else if (project && effectiveKeepChannel) {
+    console.log(chalk.gray('   Channels preserved (keepChannelOnStop config)'));
   }
 
   if (project) {
