@@ -918,6 +918,18 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       return;
     }
 
+    if (evt.ctrl && evt.name === 'p' && (evt.shift || evt.sequence === 'P')) {
+      evt.preventDefault();
+      if (stopOpen()) closeStopDialog();
+      if (newOpen()) closeNewDialog();
+      if (listOpen()) closeListDialog();
+      if (configOpen()) closeConfigDialog();
+      if (!paletteOpen()) {
+        openCommandPalette();
+      }
+      return;
+    }
+
     if (paletteOpen()) {
       if (evt.name === 'escape') {
         evt.preventDefault();
@@ -1286,6 +1298,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
           <text fg={palette.muted}>toggle: prefix + g</text>
           <text fg={palette.muted}>runtime: slash/ctrl pass to AI</text>
           <text fg={palette.muted}>window: prefix + 1..9</text>
+          <text fg={palette.muted}>palette: Ctrl+Shift+P</text>
           <text fg={palette.muted}>commands: prefix + g, then / + Enter</text>
 
           <box flexDirection="column" marginTop={1}>
