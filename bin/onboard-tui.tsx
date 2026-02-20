@@ -199,7 +199,7 @@ function OnboardWizardApp(props: {
     if (step === 'runtimeMode') return 'Choose runtime backend for agent sessions.';
     if (step === 'defaultAgent') return 'Pick the default AI CLI used by `discode new`.';
     if (step === 'opencodePermission') return 'Set OpenCode permission behavior.';
-    if (step === 'telemetry') return 'Telemetry excludes tokens/prompts/paths/content.';
+    if (step === 'telemetry') return 'Telemetry excludes tokens/prompts/paths/content and helps us improve discode.';
     return 'Press Enter to apply these settings.';
   });
 
@@ -475,7 +475,7 @@ function OnboardWizardApp(props: {
         paddingBottom={1}
       >
         <box flexDirection="row" justifyContent="space-between">
-          <text fg={palette.text} attributes={TextAttributes.BOLD}>Discode Onboarding!</text>
+          <text fg={palette.text} attributes={TextAttributes.BOLD}>Discode Onboarding</text>
           <text fg={palette.muted}>{`Step ${stepIndex() + 1}/${steps().length}`}</text>
         </box>
 

@@ -282,7 +282,7 @@ export async function onboardCommand(options: {
 }) {
   try {
     const interactive = options.nonInteractive ? false : isInteractiveShell();
-    console.log(chalk.cyan('\n🚀 Discode Onboarding!\n'));
+    console.log(chalk.cyan('\n🚀 Discode Onboarding\n'));
 
     const platform = (options.platform as 'discord' | 'slack')
       || (interactive ? await choosePlatform(interactive) : await choosePlatform(false));
