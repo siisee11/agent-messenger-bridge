@@ -32,6 +32,9 @@ function createMockPendingTracker() {
     markPending: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markError: vi.fn().mockResolvedValue(undefined),
+    hasPending: vi.fn().mockReturnValue(true),
+    ensurePending: vi.fn().mockResolvedValue(undefined),
+    getPending: vi.fn().mockReturnValue(undefined),
   };
 }
 
@@ -276,6 +279,433 @@ describe('container agent → platform send', () => {
       // Combined text (joined with newline) should equal original
       const combined = mockMessaging.sendToChannel.mock.calls.map((c: any[]) => c[1]).join('\n');
       expect(combined).toBe(longText);
+    });
+  });
+
+  describe('/opencode-event thinking from container agent', () => {
+    it('posts thinking as thread reply for container instance', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Fixed the bug.',
+        thinking: 'Let me analyze the error stack trace...',
+      });
+
+      expect(res.status).toBe(200);
+      // Thinking should be posted as thread reply
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledWith(
+        'ch-container',
+        'start-msg-ts',
+        expect.stringContaining('analyze the error stack trace'),
+      );
+      // Main response should be a channel message
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-container', 'Fixed the bug.');
+    });
+
+    it('wraps thinking in code block for container instance', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Fixed it.',
+        thinking: 'Reading the stack trace...',
+      });
+
+      expect(res.status).toBe(200);
+      const allContent = (mockMessaging as any).replyInThread.mock.calls
+        .map((c: any) => c[2])
+        .join('');
+      expect(allContent).toContain(':brain: *Reasoning*');
+      expect(allContent).toContain('```\nReading the stack trace...\n```');
+    });
+
+    it('routes thinking thread reply to correct instance channel in multi-instance setup', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-secondary',
+        messageId: 'msg-user-2',
+        startMessageId: 'start-msg-ts-2',
+      });
+      const project = {
+        projectName: 'multi',
+        projectPath: tempDir,
+        tmuxSession: 'bridge',
+        agents: { claude: true },
+        discordChannels: { claude: 'ch-primary' },
+        instances: {
+          claude: {
+            instanceId: 'claude',
+            agentType: 'claude',
+            tmuxWindow: 'multi-claude',
+            channelId: 'ch-primary',
+            containerMode: true,
+            containerId: 'container-aaa',
+          },
+          'claude-2': {
+            instanceId: 'claude-2',
+            agentType: 'claude',
+            tmuxWindow: 'multi-claude-2',
+            channelId: 'ch-secondary',
+            containerMode: true,
+            containerId: 'container-bbb',
+          },
+        },
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      const stateManager = createMockStateManager({ multi: project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'multi',
+        agentType: 'claude',
+        instanceId: 'claude-2',
+        type: 'session.idle',
+        text: 'Response from instance 2',
+        thinking: 'Instance 2 reasoning',
+      });
+
+      expect(res.status).toBe(200);
+      // Thinking should go to secondary channel's thread
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledWith(
+        'ch-secondary',
+        'start-msg-ts-2',
+        expect.stringContaining('Instance 2 reasoning'),
+      );
+      // Main response to secondary channel
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-secondary', 'Response from instance 2');
+    });
+
+    it('sends promptText from container instance', async () => {
+      const mockMessaging = createMockMessaging();
+      const mockPendingTracker = createMockPendingTracker();
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Which approach?',
+        promptText: '❓ *Approach*\nWhich one?\n\n• *Fast* — Quick\n• *Safe* — Reliable',
+      });
+
+      expect(res.status).toBe(200);
+      // First call: response text, second call: prompt text
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledTimes(2);
+      expect(mockMessaging.sendToChannel.mock.calls[0][1]).toBe('Which approach?');
+      expect(mockMessaging.sendToChannel.mock.calls[1][1]).toContain('*Approach*');
+    });
+
+    it('sends thinking + promptText + text from container instance', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Here are two approaches.',
+        thinking: 'Let me evaluate options...',
+        promptText: '❓ Pick one?\n• *A*\n• *B*',
+      });
+
+      expect(res.status).toBe(200);
+      // Thinking → thread reply
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledWith(
+        'ch-container',
+        'start-msg-ts',
+        expect.stringContaining('evaluate options'),
+      );
+      // Text + promptText → channel messages
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledTimes(2);
+      expect(mockMessaging.sendToChannel.mock.calls[0][1]).toBe('Here are two approaches.');
+      expect(mockMessaging.sendToChannel.mock.calls[1][1]).toContain('Pick one?');
+    });
+
+    it('posts tool.activity from container instance as thread reply', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'tool.activity',
+        text: '📖 Read(`src/index.ts`)',
+      });
+
+      expect(res.status).toBe(200);
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledTimes(1);
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledWith(
+        'ch-container',
+        'start-msg-ts',
+        '📖 Read(`src/index.ts`)',
+      );
+      // tool.activity should not send channel messages
+      expect(mockMessaging.sendToChannel).not.toHaveBeenCalled();
+    });
+
+    it('ignores tool.activity from container when no pending entry', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      // getPending returns undefined
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'tool.activity',
+        text: '✏️ Edit(`src/config.ts`) +3 lines',
+      });
+
+      expect(res.status).toBe(200);
+      expect((mockMessaging as any).replyInThread).not.toHaveBeenCalled();
+    });
+
+    it('routes tool.activity to correct instance channel in multi-instance setup', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-claude-2',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = {
+        projectName: 'multi',
+        projectPath: tempDir,
+        tmuxSession: 'bridge',
+        agents: { claude: true },
+        discordChannels: { claude: 'ch-claude' },
+        instances: {
+          claude: {
+            instanceId: 'claude',
+            agentType: 'claude',
+            tmuxWindow: 'multi-claude',
+            channelId: 'ch-claude',
+          },
+          'claude-2': {
+            instanceId: 'claude-2',
+            agentType: 'claude',
+            tmuxWindow: 'multi-claude-2',
+            channelId: 'ch-claude-2',
+          },
+        },
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      const stateManager = createMockStateManager({ multi: project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'multi',
+        agentType: 'claude',
+        instanceId: 'claude-2',
+        type: 'tool.activity',
+        text: '💻 `npm run build`',
+      });
+
+      expect(res.status).toBe(200);
+      expect((mockMessaging as any).replyInThread).toHaveBeenCalledWith(
+        'ch-claude-2',
+        'start-msg-ts',
+        '💻 `npm run build`',
+      );
+    });
+
+    it('tool.activity does not trigger markCompleted on container instance', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'tool.activity',
+        text: '📖 Read(`src/index.ts`)',
+      });
+
+      expect(mockPendingTracker.markCompleted).not.toHaveBeenCalled();
+      expect(mockPendingTracker.markError).not.toHaveBeenCalled();
+    });
+
+    it('posts intermediateText from container instance as thread reply', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      mockPendingTracker.getPending.mockReturnValue({
+        channelId: 'ch-container',
+        messageId: 'msg-user-1',
+        startMessageId: 'start-msg-ts',
+      });
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Final answer',
+        intermediateText: 'Checking the codebase first.',
+      });
+
+      const threadCalls = (mockMessaging as any).replyInThread.mock.calls;
+      expect(threadCalls.some((c: any) => c[2] === 'Checking the codebase first.')).toBe(true);
+      // Main text goes to channel
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-container', 'Final answer');
+    });
+
+    it('delivers response even without thinking in container mode', async () => {
+      const mockMessaging = createMockMessaging();
+      (mockMessaging as any).replyInThread = vi.fn().mockResolvedValue(undefined);
+      const mockPendingTracker = createMockPendingTracker();
+      const project = createContainerProject();
+      const stateManager = createMockStateManager({ 'test-project': project });
+
+      startServer({
+        messaging: mockMessaging as any,
+        stateManager: stateManager as any,
+        pendingTracker: mockPendingTracker as any,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const res = await postJSON(port, '/opencode-event', {
+        projectName: 'test-project',
+        agentType: 'claude',
+        instanceId: 'claude',
+        type: 'session.idle',
+        text: 'Quick fix applied.',
+      });
+
+      expect(res.status).toBe(200);
+      expect((mockMessaging as any).replyInThread).not.toHaveBeenCalled();
+      expect(mockMessaging.sendToChannel).toHaveBeenCalledWith('ch-container', 'Quick fix applied.');
     });
   });
 

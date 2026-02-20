@@ -33,7 +33,9 @@ export interface MessagingClient {
   onMessage(callback: MessageCallback): void;
 
   sendToChannel(channelId: string, content: string): Promise<void>;
+  sendToChannelWithId?(channelId: string, content: string): Promise<string | undefined>;
   sendToChannelWithFiles(channelId: string, content: string, filePaths: string[]): Promise<void>;
+  replyInThread?(channelId: string, parentMessageId: string, content: string): Promise<void>;
 
   addReactionToMessage(channelId: string, messageId: string, emoji: string): Promise<void>;
   replaceOwnReactionOnMessage(channelId: string, messageId: string, fromEmoji: string, toEmoji: string): Promise<void>;

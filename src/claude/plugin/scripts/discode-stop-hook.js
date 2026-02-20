@@ -35,6 +35,80 @@ function extractTextBlocks(node, depth = 0) {
   return [];
 }
 
+function extractToolUseBlocks(node, depth = 0) {
+  if (depth > 10 || node === undefined || node === null) return [];
+
+  if (Array.isArray(node)) {
+    return node.flatMap((item) => extractToolUseBlocks(item, depth + 1));
+  }
+
+  const obj = asObject(node);
+  if (!obj) return [];
+
+  if (obj.type === "tool_use" && typeof obj.name === "string") {
+    return [{ name: obj.name, input: obj.input && typeof obj.input === "object" ? obj.input : {} }];
+  }
+
+  if (Array.isArray(obj.content)) {
+    return extractToolUseBlocks(obj.content, depth + 1);
+  }
+
+  return [];
+}
+
+function formatPromptText(toolUseBlocks) {
+  const parts = [];
+  for (const block of toolUseBlocks) {
+    if (block.name === "AskUserQuestion") {
+      const input = block.input || {};
+      const questions = Array.isArray(input.questions) ? input.questions : [];
+      for (const q of questions) {
+        const qObj = asObject(q);
+        if (!qObj) continue;
+        const header = typeof qObj.header === "string" ? qObj.header : "";
+        const question = typeof qObj.question === "string" ? qObj.question : "";
+        if (!question) continue;
+
+        let text = header ? "\u2753 *" + header + "*\n" + question : "\u2753 " + question;
+        const options = Array.isArray(qObj.options) ? qObj.options : [];
+        for (const opt of options) {
+          const optObj = asObject(opt);
+          if (!optObj) continue;
+          const label = typeof optObj.label === "string" ? optObj.label : "";
+          const desc = typeof optObj.description === "string" ? optObj.description : "";
+          if (!label) continue;
+          text += desc ? "\n\u2022 *" + label + "* \u2014 " + desc : "\n\u2022 *" + label + "*";
+        }
+        parts.push(text);
+      }
+    } else if (block.name === "ExitPlanMode") {
+      parts.push("\uD83D\uDCCB Plan approval needed");
+    }
+  }
+  return parts.join("\n\n");
+}
+
+function extractThinkingBlocks(node, depth = 0) {
+  if (depth > 10 || node === undefined || node === null) return [];
+
+  if (Array.isArray(node)) {
+    return node.flatMap((item) => extractThinkingBlocks(item, depth + 1));
+  }
+
+  const obj = asObject(node);
+  if (!obj) return [];
+
+  if (obj.type === "thinking" && typeof obj.thinking === "string" && obj.thinking.trim().length > 0) {
+    return [obj.thinking];
+  }
+
+  if (Array.isArray(obj.content)) {
+    return extractThinkingBlocks(obj.content, depth + 1);
+  }
+
+  return [];
+}
+
 function readAssistantEntry(entry) {
   const obj = asObject(entry);
   if (!obj || obj.type !== "assistant") return null;
@@ -43,7 +117,10 @@ function readAssistantEntry(entry) {
   const messageId = typeof message.id === "string" ? message.id : "";
   const textParts = extractTextBlocks(message.content);
   const text = textParts.join("\n").trim();
-  return { messageId, text };
+  const thinkingParts = extractThinkingBlocks(message.content);
+  const thinking = thinkingParts.join("\n").trim();
+  const toolUse = extractToolUseBlocks(message.content);
+  return { messageId, text, thinking, toolUse };
 }
 
 function parseLineJson(line) {
@@ -82,12 +159,15 @@ function readTail(filePath, maxBytes) {
  * entry is flushed to disk — earlier entries in the turn may still contain file paths.
  */
 function parseTurnTexts(tail) {
-  if (!tail) return { displayText: "", turnText: "" };
+  if (!tail) return { displayText: "", intermediateText: "", turnText: "", thinking: "", promptText: "" };
 
   const lines = tail.split("\n");
   let latestMessageId = "";
   const latestTextParts = [];
+  const intermediateTextParts = [];
   const allTextParts = [];
+  const allThinkingParts = [];
+  const allToolUseBlocks = [];
 
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i].trim();
@@ -129,16 +209,36 @@ function parseTurnTexts(tail) {
       // Collect text from the latest messageId for display
       if (!latestMessageId || assistant.messageId === latestMessageId) {
         latestTextParts.push(assistant.text);
+      } else {
+        // Text from earlier messageIds (intermediate text before tool calls)
+        intermediateTextParts.push(assistant.text);
       }
+    }
+
+    // Collect ALL thinking from the turn (thinking appears in earlier messageIds
+    // before tool calls, not in the final messageId that has the response text)
+    if (assistant.thinking.length > 0) {
+      allThinkingParts.push(assistant.thinking);
+    }
+
+    // Collect tool_use blocks from the turn
+    if (assistant.toolUse.length > 0) {
+      allToolUseBlocks.push(...assistant.toolUse);
     }
   }
 
   latestTextParts.reverse();
+  intermediateTextParts.reverse();
   allTextParts.reverse();
+  allThinkingParts.reverse();
+  allToolUseBlocks.reverse();
 
   return {
     displayText: latestTextParts.join("\n").trim(),
+    intermediateText: intermediateTextParts.join("\n").trim(),
     turnText: allTextParts.join("\n").trim(),
+    thinking: allThinkingParts.join("\n").trim(),
+    promptText: formatPromptText(allToolUseBlocks),
   };
 }
 
@@ -151,7 +251,7 @@ function sleep(ms) {
  * where the Stop hook fires before the final assistant entry is flushed to disk.
  */
 async function readTurnTexts(transcriptPath) {
-  if (!transcriptPath) return { displayText: "", turnText: "" };
+  if (!transcriptPath) return { displayText: "", intermediateText: "", turnText: "", thinking: "", promptText: "" };
 
   // Retry up to 3 times with 150ms delay to let the transcript writer flush
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -237,14 +337,14 @@ async function main() {
   const port = process.env.AGENT_DISCORD_PORT || "18470";
   const transcriptPath = typeof input.transcript_path === "string" ? input.transcript_path : "";
 
-  const { displayText, turnText } = await readTurnTexts(transcriptPath);
+  const { displayText, intermediateText, turnText, thinking, promptText } = await readTurnTexts(transcriptPath);
   let text = displayText;
   if (!text && typeof input.message === "string" && input.message.trim().length > 0) {
     text = input.message;
   }
-  console.error(`[discode-stop-hook] project=${projectName} text_len=${text.length} turn_text_len=${turnText.length}`);
+  console.error(`[discode-stop-hook] project=${projectName} text_len=${text.length} intermediate_len=${intermediateText.length} turn_text_len=${turnText.length} thinking_len=${thinking.length} prompt_len=${promptText.length}`);
 
-  if (!text && !turnText) return;
+  if (!text && !turnText && !promptText) return;
 
   try {
     await postToBridge(port, {
@@ -254,6 +354,9 @@ async function main() {
       type: "session.idle",
       text: text || "",
       turnText: turnText || "",
+      ...(intermediateText ? { intermediateText } : {}),
+      ...(thinking ? { thinking } : {}),
+      ...(promptText ? { promptText } : {}),
     });
   } catch {
     // ignore bridge delivery failures

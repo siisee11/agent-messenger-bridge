@@ -115,6 +115,33 @@ export class SlackClient implements MessagingClient {
     }
   }
 
+  async sendToChannelWithId(channelId: string, content: string): Promise<string | undefined> {
+    try {
+      const result = await this.app.client.chat.postMessage({
+        token: this.botToken,
+        channel: channelId,
+        text: content,
+      });
+      return result.ts;
+    } catch (error) {
+      console.error(`Failed to send message to Slack channel ${channelId}:`, error);
+      return undefined;
+    }
+  }
+
+  async replyInThread(channelId: string, parentMessageId: string, content: string): Promise<void> {
+    try {
+      await this.app.client.chat.postMessage({
+        token: this.botToken,
+        channel: channelId,
+        thread_ts: parentMessageId,
+        text: content,
+      });
+    } catch (error) {
+      console.error(`Failed to reply in thread on Slack channel ${channelId}:`, error);
+    }
+  }
+
   async sendToChannelWithFiles(channelId: string, content: string, filePaths: string[]): Promise<void> {
     try {
       const { createReadStream } = await import('fs');
