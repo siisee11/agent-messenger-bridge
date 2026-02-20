@@ -78,6 +78,27 @@ describe('telemetry', () => {
     expect(body.events[0].params.duration_ms).toBe(173);
   });
 
+  it('uses default endpoint when none is configured', async () => {
+    mocks.getConfigValue.mockImplementation((key: string) => {
+      if (key === 'telemetryEnabled') return true;
+      if (key === 'telemetryEndpoint') return undefined;
+      if (key === 'telemetryInstallId') return 'install-1234';
+      return undefined;
+    });
+
+    const mod = await import('../../src/telemetry/index.js');
+    await mod.recordCliCommandTelemetry({
+      command: 'status',
+      success: true,
+      durationMs: 11,
+      cliVersion: '0.7.4',
+    });
+
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    const [url] = mocks.fetch.mock.calls[0];
+    expect(url).toBe('https://telemetry.discode.chat/v1/events');
+  });
+
   it('generates and persists install id when missing', async () => {
     mocks.getConfigValue.mockImplementation((key: string) => {
       if (key === 'telemetryEnabled') return true;

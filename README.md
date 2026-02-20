@@ -213,7 +213,7 @@ discode config --token NEW_TOKEN   # Update bot token
 discode config --server SERVER_ID  # Set Discord server ID manually
 discode config --port 18470        # Set hook server port
 discode config --telemetry on      # Enable anonymous CLI telemetry (opt-in)
-discode config --telemetry-endpoint https://your-worker.example/v1/events
+discode config --telemetry-endpoint https://telemetry.discode.chat/v1/events
 ```
 
 ### Project Commands
@@ -305,7 +305,7 @@ Stored in `~/.discode/config.json`:
 | `hookServerPort` | No | Port for the hook server | `18470` |
 | `defaultAgentCli` | No | Default AI CLI used by `discode new` when agent is omitted | First installed CLI |
 | `telemetryEnabled` | No | Opt-in flag for anonymous CLI telemetry | `false` |
-| `telemetryEndpoint` | No | HTTP endpoint for telemetry proxy (recommended: Cloudflare Worker) | - |
+| `telemetryEndpoint` | No | HTTP endpoint for telemetry proxy (recommended: Cloudflare Worker) | `https://telemetry.discode.chat/v1/events` |
 | `telemetryInstallId` | No | Anonymous per-install random ID used as GA client ID | Auto-generated on opt-in |
 
 ```bash
@@ -314,7 +314,7 @@ discode config --token NEW_TOKEN     # Update bot token
 discode config --server SERVER_ID    # Set server ID manually
 discode config --port 18470          # Set hook server port
 discode config --telemetry on        # Enable anonymous telemetry
-discode config --telemetry-endpoint https://your-worker.example/v1/events
+discode config --telemetry-endpoint https://telemetry.discode.chat/v1/events
 ```
 
 ### Project State
@@ -352,7 +352,8 @@ npm run telemetry:deploy
 npm run telemetry:secret
 ```
 
-Then point CLI telemetry to your deployed Worker URL:
+CLI telemetry defaults to `https://telemetry.discode.chat/v1/events`.
+To override it with your own deployed Worker URL:
 
 ```bash
 discode config --telemetry-endpoint https://discode-telemetry-proxy.<your-subdomain>.workers.dev

@@ -16,7 +16,8 @@ npx wrangler secret put GA4_API_SECRET --config workers/telemetry-proxy/wrangler
 
 ## 2) Enable telemetry in CLI
 
-Use your deployed Worker URL:
+The CLI default endpoint is `https://telemetry.discode.chat/v1/events`.
+Use this command only when you want to override it with your own deployed Worker URL:
 
 ```bash
 discode config --telemetry-endpoint https://discode-telemetry-proxy.<your-subdomain>.workers.dev

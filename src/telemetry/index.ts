@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { getConfigValue, saveConfig } from '../config/index.js';
 
 const TELEMETRY_TIMEOUT_MS = 250;
+const DEFAULT_TELEMETRY_ENDPOINT = 'https://telemetry.discode.chat/v1/events';
 
 export interface CliCommandTelemetryEvent {
   command: string;
@@ -58,7 +59,7 @@ export function resolveTelemetrySettings(): TelemetrySettings {
 
   const storedEndpoint = getConfigValue('telemetryEndpoint')?.trim();
   const envEndpoint = process.env.DISCODE_TELEMETRY_ENDPOINT?.trim();
-  const endpoint = storedEndpoint || envEndpoint || undefined;
+  const endpoint = storedEndpoint || envEndpoint || DEFAULT_TELEMETRY_ENDPOINT;
 
   const storedInstallId = getConfigValue('telemetryInstallId')?.trim();
   const envInstallId = process.env.DISCODE_TELEMETRY_INSTALL_ID?.trim();
