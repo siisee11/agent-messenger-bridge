@@ -80,6 +80,8 @@ vi.mock('../../src/gemini/hook-installer.js', () => ({
   installGeminiHook: pluginInstallerMocks.installGeminiHook,
   getGeminiHookSourcePath: () => '/mock/src/gemini/hook/discode-after-agent-hook.js',
   GEMINI_AFTER_AGENT_HOOK_FILENAME: 'discode-after-agent-hook.js',
+  GEMINI_NOTIFICATION_HOOK_FILENAME: 'discode-notification-hook.js',
+  GEMINI_SESSION_HOOK_FILENAME: 'discode-session-hook.js',
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────

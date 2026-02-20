@@ -7,7 +7,7 @@ import { getConfigValue, saveConfig } from '../../config/index.js';
 import { normalizeDiscordToken } from '../../config/token.js';
 import { ensureOpencodePermissionChoice } from '../common/opencode-permission.js';
 import { confirmYesNo, isInteractiveShell, prompt } from '../common/interactive.js';
-import { ensureTelemetryInstallId, resolveTelemetrySettings } from '../../telemetry/index.js';
+import { ensureTelemetryInstallId } from '../../telemetry/index.js';
 
 type RegisteredAgentAdapter = ReturnType<typeof agentRegistry.getAll>[number];
 
@@ -282,7 +282,7 @@ export async function onboardCommand(options: {
 }) {
   try {
     const interactive = options.nonInteractive ? false : isInteractiveShell();
-    console.log(chalk.cyan('\n🚀 Discode Onboarding!\n'));
+    console.log(chalk.cyan('\n🚀 Discode Onboarding\n'));
 
     const platform = (options.platform as 'discord' | 'slack')
       || (interactive ? await choosePlatform(interactive) : await choosePlatform(false));
@@ -345,11 +345,6 @@ export async function onboardCommand(options: {
       console.log(chalk.green('✅ Anonymous telemetry enabled'));
       if (installId) {
         console.log(chalk.gray(`   Install ID: ${installId.slice(0, 8)}...${installId.slice(-4)}`));
-      }
-      const endpoint = resolveTelemetrySettings().endpoint;
-      if (!endpoint) {
-        console.log(chalk.yellow('⚠️ Telemetry endpoint is not set.'));
-        console.log(chalk.gray('   Set one with: discode config --telemetry-endpoint https://your-worker.example/v1/events'));
       }
     } else {
       console.log(chalk.green('✅ Anonymous telemetry disabled'));

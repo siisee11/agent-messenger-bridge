@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3343SLQ4YR"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag("js", new Date());
+      gtag("config", "G-3343SLQ4YR");
+    </script>
+    <title>Discode Docs - Slack Bot Setup</title>
+    <meta name="description" content="Step-by-step Slack app and token setup for Discode." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Nunito+Sans:wght@700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../discode.png" />
+    <link rel="stylesheet" href="./docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../">
+          <img src="../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../">Home</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+          <label class="language-picker">
+            <span class="sr-only">Language</span>
+            <select data-language-select aria-label="Select language">
+              <option value="en">English</option>
+              <option value="ko">Korean</option>
+            </select>
+          </label>
+        </nav>
+      </header>
+
+      <main class="shell doc-main">
+        <div class="doc-layout">
+          <aside class="doc-nav" aria-label="Docs navigation">
+            <p>Docs</p>
+            <a href="./">Overview</a>
+            <a href="./getting-started.html">Getting Started</a>
+            <a href="./cli-reference.html">CLI Reference</a>
+            <a href="./discord-bot.html">Discord Bot Setup</a>
+            <a href="./slack-bot.html" aria-current="page">Slack Bot Setup</a>
+            <a href="./release.html">Release Guide</a>
+          </aside>
+
+          <article class="doc-article">
+            <h1>Slack Bot Setup</h1>
+            <p class="lead">
+              Create one Slack app, issue the required tokens, and run onboarding. These steps are adapted
+              from <code>docs/SLACK_SETUP.md</code>.
+            </p>
+
+            <section class="doc-section" id="create-app">
+              <h2>1) Create a Slack app</h2>
+              <ol>
+                <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Slack App Dashboard</a>.</li>
+                <li>Click <strong>Create New App</strong> and choose <strong>From scratch</strong>.</li>
+                <li>Name the app (for example, <code>Discode Bot</code>) and pick your workspace.</li>
+              </ol>
+            </section>
+
+            <section class="doc-section" id="socket-mode">
+              <h2>2) Enable Socket Mode and issue app token</h2>
+              <ol>
+                <li>Open <strong>Socket Mode</strong> in the app sidebar and turn it on.</li>
+                <li>Create an App-Level Token with <code>connections:write</code>.</li>
+                <li>Copy and store the <code>xapp-...</code> token safely.</li>
+              </ol>
+            </section>
+
+            <section class="doc-section" id="scopes">
+              <h2>3) Configure Bot Token Scopes</h2>
+              <p>In <strong>OAuth &amp; Permissions</strong> - <strong>Bot Token Scopes</strong>, add:</p>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Scope</th>
+                      <th>Why it is needed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>chat:write</code></td>
+                      <td>Send bot messages to channels.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:history</code></td>
+                      <td>Read messages in public channels.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:read</code></td>
+                      <td>List available channels.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:manage</code></td>
+                      <td>Create and archive project channels.</td>
+                    </tr>
+                    <tr>
+                      <td><code>groups:read</code></td>
+                      <td>Read private channel metadata.</td>
+                    </tr>
+                    <tr>
+                      <td><code>files:read</code> / <code>files:write</code></td>
+                      <td>Receive and upload files.</td>
+                    </tr>
+                    <tr>
+                      <td><code>reactions:read</code> / <code>reactions:write</code></td>
+                      <td>Handle approval reactions.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="doc-section" id="events-and-install">
+              <h2>4) Enable events and install to workspace</h2>
+              <ol>
+                <li>Enable <strong>Event Subscriptions</strong> and add <code>message.channels</code>.</li>
+                <li>Open <strong>Install App</strong> and click <strong>Install to Workspace</strong>.</li>
+                <li>Copy the <code>xoxb-...</code> Bot User OAuth Token.</li>
+              </ol>
+              <p class="callout">
+                Socket Mode handles event delivery, so you do not need a Request URL for events.
+              </p>
+            </section>
+
+            <section class="doc-section" id="onboard">
+              <h2>5) Run onboarding and verify</h2>
+              <pre class="command"><code>discode onboard --platform slack
+discode config --show
+discode new</code></pre>
+              <p>Or pass tokens directly in non-interactive environments:</p>
+              <pre class="command"><code>discode config --platform slack \
+  --slack-bot-token xoxb-your-bot-token \
+  --slack-app-token xapp-your-app-token</code></pre>
+              <p class="callout">
+                Never commit or share <code>xoxb-...</code> and <code>xapp-...</code> tokens.
+              </p>
+            </section>
+
+            <section class="doc-section" id="quick-card">
+              <h2>Quick reference card</h2>
+              <pre class="command"><code>1. Create app at api.slack.com/apps
+2. Enable Socket Mode and copy xapp token
+3. Add required Bot Token Scopes
+4. Enable Event Subscriptions: message.channels
+5. Install app and copy xoxb token
+6. Run discode onboard --platform slack
+7. Start with discode new</code></pre>
+            </section>
+
+            <p class="doc-footer">
+              Source:
+              <a href="https://github.com/siisee11/discode/blob/main/docs/SLACK_SETUP.md" target="_blank" rel="noreferrer">SLACK_SETUP.md</a>
+              /
+              <a href="https://github.com/siisee11/discode/blob/main/docs/SLACK_SETUP.ko.md" target="_blank" rel="noreferrer">SLACK_SETUP.ko.md</a>
+            </p>
+          </article>
+        </div>
+      </main>
+    </div>
+    <script src="/language.js"></script>
+  </body>
+</html>

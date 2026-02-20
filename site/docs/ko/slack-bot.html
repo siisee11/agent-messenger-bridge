@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-3343SLQ4YR"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag("js", new Date());
+      gtag("config", "G-3343SLQ4YR");
+    </script>
+    <title>Discode 문서 - Slack 봇 설정</title>
+    <meta name="description" content="Discode용 Slack 앱 생성과 토큰 발급 절차를 단계별로 안내합니다." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Nunito+Sans:wght@700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../../discode.png" />
+    <link rel="stylesheet" href="../docs.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="shell topbar">
+        <a class="brand" href="../../">
+          <img src="../../discode.png" alt="Discode crab icon" class="brand-icon" />
+          <span class="brand-label">Discode</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          <a href="../../">홈</a>
+          <a href="./" aria-current="page">문서</a>
+          <a href="https://github.com/siisee11/discode" target="_blank" rel="noreferrer">GitHub</a>
+          <label class="language-picker">
+            <span class="sr-only">언어</span>
+            <select data-language-select aria-label="언어 선택">
+              <option value="en">English</option>
+              <option value="ko">Korean</option>
+            </select>
+          </label>
+        </nav>
+      </header>
+
+      <main class="shell doc-main">
+        <div class="doc-layout">
+          <aside class="doc-nav" aria-label="문서 내비게이션">
+            <p>문서</p>
+            <a href="./">개요</a>
+            <a href="./getting-started.html">시작하기</a>
+            <a href="./cli-reference.html">CLI 레퍼런스</a>
+            <a href="./discord-bot.html">Discord 봇 설정</a>
+            <a href="./slack-bot.html" aria-current="page">Slack 봇 설정</a>
+            <a href="./release.html">릴리즈 가이드</a>
+          </aside>
+
+          <article class="doc-article">
+            <h1>Slack 봇 설정</h1>
+            <p class="lead">
+              Slack 앱을 한 번 생성하고 필요한 토큰을 발급하면 Discode를 Slack에 연결할 수 있습니다.
+              아래 단계는 <code>docs/SLACK_SETUP.ko.md</code>를 바탕으로 정리했습니다.
+            </p>
+
+            <section class="doc-section" id="create-app">
+              <h2>1) Slack 앱 생성</h2>
+              <ol>
+                <li><a href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Slack App 관리 페이지</a>에 접속합니다.</li>
+                <li><strong>Create New App</strong> - <strong>From scratch</strong>를 선택합니다.</li>
+                <li>앱 이름(예: <code>Discode Bot</code>)과 워크스페이스를 선택합니다.</li>
+              </ol>
+            </section>
+
+            <section class="doc-section" id="socket-mode">
+              <h2>2) Socket Mode 활성화 및 앱 토큰 발급</h2>
+              <ol>
+                <li>사이드바의 <strong>Socket Mode</strong>에서 기능을 활성화합니다.</li>
+                <li><code>connections:write</code> 권한으로 App-Level Token을 생성합니다.</li>
+                <li><code>xapp-...</code> 토큰을 복사해 안전하게 보관합니다.</li>
+              </ol>
+            </section>
+
+            <section class="doc-section" id="scopes">
+              <h2>3) Bot Token Scope 설정</h2>
+              <p><strong>OAuth &amp; Permissions</strong> - <strong>Bot Token Scopes</strong>에서 다음을 추가하세요:</p>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Scope</th>
+                      <th>필요한 이유</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>chat:write</code></td>
+                      <td>봇 메시지 전송.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:history</code></td>
+                      <td>공개 채널 메시지 읽기.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:read</code></td>
+                      <td>채널 목록 조회.</td>
+                    </tr>
+                    <tr>
+                      <td><code>channels:manage</code></td>
+                      <td>프로젝트 채널 생성 및 아카이브.</td>
+                    </tr>
+                    <tr>
+                      <td><code>groups:read</code></td>
+                      <td>비공개 채널 메타데이터 조회.</td>
+                    </tr>
+                    <tr>
+                      <td><code>files:read</code> / <code>files:write</code></td>
+                      <td>파일 읽기 및 업로드.</td>
+                    </tr>
+                    <tr>
+                      <td><code>reactions:read</code> / <code>reactions:write</code></td>
+                      <td>승인 리액션 처리.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="doc-section" id="events-and-install">
+              <h2>4) 이벤트 활성화 및 워크스페이스 설치</h2>
+              <ol>
+                <li><strong>Event Subscriptions</strong>를 켜고 <code>message.channels</code> 이벤트를 추가합니다.</li>
+                <li><strong>Install App</strong>에서 <strong>Install to Workspace</strong>를 클릭합니다.</li>
+                <li><code>xoxb-...</code> Bot User OAuth Token을 복사합니다.</li>
+              </ol>
+              <p class="callout">
+                Socket Mode를 사용하므로 Event Subscriptions의 Request URL은 필요하지 않습니다.
+              </p>
+            </section>
+
+            <section class="doc-section" id="onboard">
+              <h2>5) 온보딩 실행 및 확인</h2>
+              <pre class="command"><code>discode onboard --platform slack
+discode config --show
+discode new</code></pre>
+              <p>비대화형 환경에서는 토큰을 직접 전달할 수 있습니다:</p>
+              <pre class="command"><code>discode config --platform slack \
+  --slack-bot-token xoxb-your-bot-token \
+  --slack-app-token xapp-your-app-token</code></pre>
+              <p class="callout">
+                <code>xoxb-...</code>와 <code>xapp-...</code> 토큰은 절대 커밋하거나 외부에 공유하지 마세요.
+              </p>
+            </section>
+
+            <section class="doc-section" id="quick-card">
+              <h2>빠른 참조 카드</h2>
+              <pre class="command"><code>1. api.slack.com/apps 에서 앱 생성
+2. Socket Mode 활성화 + xapp 토큰 발급
+3. Bot Token Scopes 추가
+4. Event Subscriptions: message.channels 추가
+5. 앱 설치 후 xoxb 토큰 복사
+6. discode onboard --platform slack 실행
+7. discode new 시작</code></pre>
+            </section>
+
+            <p class="doc-footer">
+              출처:
+              <a href="https://github.com/siisee11/discode/blob/main/docs/SLACK_SETUP.ko.md" target="_blank" rel="noreferrer">SLACK_SETUP.ko.md</a>
+              /
+              <a href="https://github.com/siisee11/discode/blob/main/docs/SLACK_SETUP.md" target="_blank" rel="noreferrer">SLACK_SETUP.md</a>
+            </p>
+          </article>
+        </div>
+      </main>
+    </div>
+    <script src="/language.js"></script>
+  </body>
+</html>

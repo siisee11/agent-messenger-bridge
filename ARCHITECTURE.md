@@ -1,199 +1,213 @@
 # Discode Architecture (Current)
 
-Last updated: 2026-02-18  
-Target version: 0.7.x
+Last updated: 2026-02-20  
+Target version: 0.7.5
 
 ## 1. Overview
 
-discode is a global daemon-based bridge that connects:
+discode is a global daemon bridge that connects:
 
-- Messaging platforms (Discord, Slack)
-- Agent CLIs (Claude, Gemini, OpenCode)
-- Local runtime windows (tmux mode or pty mode)
+- Messaging platforms: Discord and Slack
+- Agent CLIs: Claude, Gemini, OpenCode
+- Local runtime backends: `tmux` or `pty`
 
-Core idea:
+Current architecture principles:
 
-- Daemon owns routing/state/integration
-- CLI commands configure and operate projects
-- TUI acts as a multiplexer client (`Ctrl+1..9` quick window focus)
+- One global daemon owns routing, integrations, runtime control, and stream transport
+- CLI commands mutate config/state and orchestrate project lifecycle
+- TUI is a client of daemon runtime APIs and the runtime stream socket
 
+## 2. Process Model
 
-## 2. Runtime Architecture
+Main processes:
 
-discode now has a runtime abstraction layer.
+- `discode daemon` starts a detached singleton (`~/.discode/daemon.pid`, `~/.discode/daemon.log`)
+- Daemon entrypoint is `src/daemon-entry.ts` -> `src/index.ts` (`AgentBridge`)
+- Daemon listens on loopback HTTP (`127.0.0.1:${HOOK_SERVER_PORT}`)
+- Daemon also serves runtime stream over UDS/named pipe
 
-- Interface: `src/runtime/interface.ts` (`AgentRuntime`)
-- Implementations:
-  - `TmuxRuntime` (`src/runtime/tmux-runtime.ts`) -> wraps `TmuxManager`
-  - `PtyRuntime` (`src/runtime/pty-runtime.ts`) -> process-backed runtime windows
+Runtime notes:
+
+- Built JS daemon entrypoints run with Node (for `node-pty` compatibility)
+- TS source fallback runs with Bun
+- On macOS, daemon uses `caffeinate -ims` wrapper to avoid sleep suspension
+
+## 3. Runtime Abstraction
+
+`AgentRuntime` interface: `src/runtime/interface.ts`
+
+Implementations:
+
+- `TmuxRuntime` (`src/runtime/tmux-runtime.ts`) via `TmuxManager`
+- `PtyRuntime` (`src/runtime/pty-runtime.ts`) process-backed windows (+ optional `node-pty`)
 
 Runtime selection:
 
 - Config key: `runtimeMode: 'tmux' | 'pty'`
-- Source: `~/.discode/config.json` or `DISCODE_RUNTIME_MODE`
-- Default: `tmux`
+- Sources: `~/.discode/config.json`, `DISCODE_RUNTIME_MODE`
+- Loader default: `tmux`
 
+## 4. Core Components
 
-## 3. Main Components
+- `AgentBridge` (`src/index.ts`): wiring for messaging, routing, hook server, stream server, bootstrap
+- `BridgeProjectBootstrap` (`src/bridge/project-bootstrap.ts`): rebuild channel mappings and reinstall agent integrations
+- `BridgeMessageRouter` (`src/bridge/message-router.ts`): inbound message routing, attachment handling, submit timing, pending tracking
+- `BridgeHookServer` (`src/bridge/hook-server.ts`): HTTP control plane + hook ingress (`/opencode-event`, `/send-files`)
+- `RuntimeControlPlane` (`src/runtime/control-plane.ts`): runtime window listing/focus/input/buffer/stop
+- `RuntimeStreamServer` (`src/runtime/stream-server.ts`): low-latency frame stream for TUI
+- `PendingMessageTracker` (`src/bridge/pending-message-tracker.ts`): reaction lifecycle (`hourglass` -> `check`/`x`)
+- `StateManager` (`src/state/index.ts`): persisted projects/instances
 
-- `AgentBridge` (`src/index.ts`)
-  - Bootstraps messaging + hook server + routing
-  - Chooses runtime (`TmuxRuntime` or `PtyRuntime`)
-- `BridgeMessageRouter` (`src/bridge/message-router.ts`)
-  - Routes inbound user messages to runtime windows
-  - Handles OpenCode type-then-enter submission behavior
-- `BridgeHookServer` (`src/bridge/hook-server.ts`)
-  - Receives agent events and runtime control requests
-- `RuntimeStreamServer` (`src/runtime/stream-server.ts`)
-  - Provides low-latency local stream transport for TUI <-> daemon runtime I/O
-- `VtScreen` (`src/runtime/vt-screen.ts`)
-  - Incremental VT state engine for tmux-like terminal fidelity in PTY mode
-- `BridgeProjectBootstrap` (`src/bridge/project-bootstrap.ts`)
-  - Rebuilds channel mappings from persisted state
-- `StateManager` (`src/state/index.ts`)
-  - Persists projects/instances (`~/.discode/state.json`)
+## 5. Data Flows
 
+### 5.1 Messaging -> Agent
 
-## 4. Data Flow
+1. Discord/Slack message arrives in mapped channel
+2. Router resolves project instance by `instanceId` or `channelId`
+3. Attachments are downloaded into project (`.discode/files`), then `[file:/abs/path]` markers are appended
+4. If instance is containerized, downloaded files are injected into container workspace
+5. Input is sanitized (non-empty, <= 10000 chars, null-byte stripped)
+6. Runtime submission uses type-then-enter with per-agent delay
 
-### 4.1 Messaging -> Agent
+Submission timing:
 
-1. User sends message in Discord/Slack channel
-2. Messaging client resolves channel -> project/instance mapping
-3. `BridgeMessageRouter` sends input via `AgentRuntime`
+- OpenCode: `AGENT_DISCORD_OPENCODE_SUBMIT_DELAY_MS` (default 75ms)
+- Others: `DISCODE_SUBMIT_DELAY_MS` (default 300ms)
 
-### 4.2 Agent -> Messaging
+### 5.2 Agent -> Messaging
 
-1. Agent integration hook posts event to daemon (`/opencode-event`)
-2. Hook server parses/splits text
-3. Messaging client posts updates to the mapped channel
+1. Agent integrations post events to daemon `POST /opencode-event` (name kept for compatibility)
+2. `session.idle` sends assistant text to mapped channel (chunked by platform)
+3. File paths are extracted from full turn text, validated inside project root, path strings stripped from text output, then files uploaded
+4. `session.error` posts warning and marks pending message as failed
 
-### 4.3 TUI Multiplexer Control
+### 5.3 Pending and Fallback Delivery
 
-1. TUI connects to daemon runtime stream (`~/.discode/runtime.sock`)
-2. TUI subscribes to active window frames and receives push updates
-3. TUI sends raw key input + resize events over stream
-4. HTTP runtime endpoints are used as fallback-only when stream is unavailable
+- Incoming user messages get pending reaction updates
+- When stop hooks do not resolve (for interactive terminal states), router runs stable-buffer fallback checks and may post captured terminal block
 
+### 5.4 TUI Runtime I/O
 
-## 5. Runtime Control Plane (Daemon HTTP)
+1. TUI connects to runtime stream socket
+2. TUI subscribes/focuses windows and receives pushed frames (`frame-styled` or `patch-styled`)
+3. TUI sends raw key bytes and resize events over stream
+4. Stream transport is required for runtime I/O (HTTP fallback for frame transport is removed)
 
-Implemented in `BridgeHookServer` + `RuntimeControlPlane`:
+## 6. Daemon HTTP Control Plane
 
-- `POST /reload` - reload channel mappings
-- `POST /send-files` - send files to mapped channel
-- `POST /opencode-event` - agent event ingress
+Implemented in `BridgeHookServer`:
 
-Runtime endpoints:
+- `POST /reload` - rebuild channel mappings from state
+- `POST /send-files` - send validated files to mapped channel
+- `POST /opencode-event` - hook ingress from agents
 
-- `GET /runtime/windows` - list windows + active window
-- `POST /runtime/focus` - focus a window
-- `POST /runtime/input` - send text/enter to a window
-- `GET /runtime/buffer?windowId=...&since=...` - incremental output buffer
-- `POST /runtime/stop` - stop a runtime window
-- `POST /runtime/ensure` - ensure project instance window exists (used by `discode new` in pty mode)
+Runtime control endpoints:
 
-Request body size is limited (413 for oversized payload).
+- `GET /runtime/windows`
+- `POST /runtime/focus`
+- `POST /runtime/input`
+- `GET /runtime/buffer?windowId=...&since=...`
+- `POST /runtime/stop`
+- `POST /runtime/ensure`
 
-## 5.1 Runtime Stream Plane (UDS)
+Body limit:
 
-Implemented in `RuntimeStreamServer` + `RuntimeStreamClient`:
+- 256 KiB max request payload (`413 Payload too large`)
 
-- Socket: `~/.discode/runtime.sock` (Unix), `\\.\pipe\discode-runtime` (Windows)
-- Client -> daemon messages:
-  - `hello`, `subscribe`, `focus`, `input(bytesBase64)`, `resize`
-- Daemon -> client messages:
-  - `frame` (current screen lines)
-  - `frame-styled` (styled terminal segments with color/attributes)
-  - `patch` / `patch-styled` (feature-flagged diff updates)
-  - `window-exit` (window disappeared/exited)
-  - `error`
+## 7. Runtime Stream Plane
 
-This stream path is the primary PTY runtime I/O channel.
-Optional patch/diff optimization is enabled with `DISCODE_STREAM_PATCH_DIFF=1`.
+Transport:
 
+- Unix: `~/.discode/runtime.sock`
+- Windows: `\\.\pipe\discode-runtime`
 
-## 6. CLI Behavior by Runtime Mode
+Client -> daemon messages:
 
-Relevant commands now branch by runtime mode:
+- `hello`, `subscribe`, `focus`, `input(bytesBase64)`, `resize`
+
+Daemon -> client messages:
+
+- `frame`, `patch`
+- `frame-styled`, `patch-styled`
+- `window-exit`, `error`
+
+Optional optimization:
+
+- `DISCODE_STREAM_PATCH_DIFF=1` enables patch-diff emission preference
+
+## 8. Runtime-Mode CLI Behavior
 
 - `new`
-  - `tmux`: tmux session/window flow + attach option
-  - `pty`: skips tmux pane bootstrap, ensures daemon runtime window, opens TUI on attach
+  - Ensures daemon
+  - Creates/resumes instance state and channel mapping
+  - `tmux`: starts/attaches tmux window and can bootstrap TUI pane
+  - `pty`: ensures runtime window in daemon via `/runtime/ensure`; attach opens TUI
 - `attach`
-  - `tmux`: attach/switch tmux target
-  - `pty`: focus runtime window then launch TUI
-- `start` / `stop` / `list` / `status`
-  - use runtime-mode-aware logic
+  - `tmux`: attaches/switches tmux target
+  - `pty`: focuses runtime window then launches TUI
+- `stop`
+  - `tmux`: kills tmux window/session + state/channel cleanup
+  - `pty`: stops runtime window via `/runtime/stop` + state/channel cleanup
+- `status` / `list`
+  - Runtime-aware active window detection (`tmux` session/window checks vs `/runtime/windows`)
 - `daemon`
-  - actions: `start | restart | stop | status`
+  - `start | restart | stop | status`
 
+## 9. Container Isolation Mode
 
-## 7. TUI Multiplexer Status
+Enabled by config (`containerEnabled`) or `discode new --container`.
+
+Per-instance behavior:
+
+- Creates Docker container from managed image
+- Injects credentials and optional plugin/config assets
+- Starts agent via `docker start -ai <containerId>` in runtime window
+- Runs periodic host sync (`ContainerSync`) for changed files
+- On stop: final sync + container stop/remove
+
+Chrome MCP bridge support:
+
+- Daemon may start `ChromeMcpProxy` on `hookServerPort + 1`
+- Container config is patched to reach host bridge via `host.docker.internal`
+
+## 10. TUI Status (OpenTUI)
 
 Current TUI (`bin/tui.tsx`) supports:
 
-- Stream-first terminal rendering with HTTP fallback
-- `Ctrl+1..9` quick switch
-- Active window metadata display
-- Active window output via pushed runtime frames
-- Styled terminal segment rendering (`frame-styled`) with text fallback
-- Runtime input mode with raw key forwarding (`Enter` mapped as carriage return)
-- Runtime transport status (stream vs fallback) in sidebar
-- Command palette/flow with runtime-aware attach behavior
+- Stream-based terminal rendering with styled segments and cursor updates
+- Prefix-key workflow (`Ctrl+b`), quick switch (`prefix + 1..9`)
+- Runtime input mode vs command mode
+- Slash commands (`/new`, `/onboard`, `/list`, `/projects`, `/config`, `/stop`, `/help`)
+- Command palette, config dialog, and project/session sidebars
+- Clipboard copy for text selection
 
+## 11. State and Config
 
-## 8. State and Config
-
-### 8.1 Config (`~/.discode/config.json`)
+### 11.1 Config (`~/.discode/config.json`)
 
 Important keys:
 
-- `token`, `serverId`
-- `messagingPlatform` (`discord` | `slack`)
-- `defaultAgentCli`
-- `opencodePermissionMode`
-- `hookServerPort`
-- `runtimeMode` (`tmux` | `pty`)
+- Messaging: `token`, `serverId`, `messagingPlatform`, `slackBotToken`, `slackAppToken`
+- Runtime: `runtimeMode`, `hookServerPort`
+- Agent defaults/policy: `defaultAgentCli`, `opencodePermissionMode`
+- Stop behavior: `keepChannelOnStop`
+- Container: `containerEnabled`, `containerSocketPath`, `containerSyncIntervalMs`
+- Telemetry: `telemetryEnabled`, `telemetryEndpoint`, `telemetryInstallId`
 
-### 8.2 State (`~/.discode/state.json`)
+### 11.2 State (`~/.discode/state.json`)
 
-Project-centric persisted model with instance-level metadata:
+- Global: `guildId`, `slackWorkspaceId`
+- Projects keyed by `projectName`
+- Per project: `projectPath`, `tmuxSession`, timestamps
+- Per instance: `instanceId`, `agentType`, `tmuxWindow`, `channelId`, `eventHook`, optional container metadata
 
-- `projectName`, `projectPath`, `tmuxSession`
-- `instances[instanceId]`:
-  - `instanceId`, `agentType`, `tmuxWindow`, `channelId`, `eventHook`
+Compatibility:
 
-Note: field names still include `tmux*` for compatibility, even when running pty mode.
+- Legacy `tmux*`/`discordChannels` maps are still normalized for backward compatibility
 
+## 12. Operational Notes
 
-## 9. Module Map (High-level)
-
-- `src/index.ts` - `AgentBridge`
-- `src/bridge/*` - routing, hook server, bootstrap, pending tracker
-- `src/runtime/*` - runtime abstraction + implementations
-- `src/tmux/*` - tmux command layer
-- `src/agents/*` - adapter registry and agent adapters
-- `src/state/*` - persisted state
-- `src/config/*` - config loading/merge/validation
-- `src/cli/commands/*` - user commands
-- `bin/discode.ts` - CLI entry
-- `bin/tui.tsx` - OpenTUI UI
-
-
-## 10. Operational Notes
-
-- Daemon is global singleton (pid/log in `~/.discode`)
-- In `pty` mode, daemon startup restores missing runtime windows from persisted project state
-- If runtime/config code changes, restart daemon to apply:
-
-```bash
-discode daemon restart
-```
-
-- For pty mode:
-
-```bash
-discode config --runtime-mode pty
-discode daemon restart
-```
+- Daemon is global singleton; restart after runtime/config/integration changes
+- In `pty` mode, daemon restores missing runtime windows from persisted state at startup
+- Agent integrations are reinstalled during bootstrap to keep hooks/plugins consistent
+- CLI includes optional telemetry (opt-in) and interactive update prompt for npm releases

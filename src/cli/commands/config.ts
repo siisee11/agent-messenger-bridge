@@ -87,11 +87,6 @@ export async function configCommand(options: {
       if (installId) {
         console.log(chalk.gray(`   Install ID: ${installId.slice(0, 8)}...${installId.slice(-4)}`));
       }
-      const endpoint = resolveTelemetrySettings().endpoint;
-      if (!endpoint) {
-        console.log(chalk.yellow('⚠️ Telemetry endpoint is not set.'));
-        console.log(chalk.gray('   Set one with: discode config --telemetry-endpoint https://your-worker.example/v1/events'));
-      }
     } else {
       console.log(chalk.green('✅ Telemetry disabled'));
     }
@@ -205,7 +200,7 @@ export async function configCommand(options: {
     console.log(chalk.gray('  discode config --slack-app-token xapp-...'));
     console.log(chalk.gray('  discode config --opencode-permission allow'));
     console.log(chalk.gray('  discode config --telemetry on'));
-    console.log(chalk.gray('  discode config --telemetry-endpoint https://your-worker.example/v1/events'));
+    console.log(chalk.gray('  discode config --telemetry-endpoint https://telemetry.discode.chat/v1/events'));
     console.log(chalk.gray('  discode config --show'));
   }
 }

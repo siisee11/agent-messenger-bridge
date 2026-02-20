@@ -174,7 +174,7 @@ discode config --token NEW_TOKEN   # 봇 토큰 변경
 discode config --server SERVER_ID  # Discord 서버 ID 수동 설정
 discode config --port 18470        # 훅 서버 포트 설정
 discode config --telemetry on      # 익명 CLI 텔레메트리 활성화(옵트인)
-discode config --telemetry-endpoint https://your-worker.example/v1/events
+discode config --telemetry-endpoint https://telemetry.discode.chat/v1/events
 ```
 
 ### 프로젝트 명령어
@@ -339,7 +339,7 @@ export interface AgentAdapter {
 discode config --show               # 현재 설정 확인
 discode config --server SERVER_ID    # 서버 ID 수동 설정
 discode config --telemetry on        # 익명 텔레메트리 활성화
-discode config --telemetry-endpoint https://your-worker.example/v1/events
+discode config --telemetry-endpoint https://telemetry.discode.chat/v1/events
 ```
 
 ### 프로젝트 상태
@@ -355,7 +355,7 @@ DISCORD_BOT_TOKEN=token discode daemon start
 DISCORD_GUILD_ID=server_id discode new
 HOOK_SERVER_PORT=18470 discode new
 DISCODE_TELEMETRY_ENABLED=true discode new
-DISCODE_TELEMETRY_ENDPOINT=https://your-worker.example/v1/events discode new
+DISCODE_TELEMETRY_ENDPOINT=https://telemetry.discode.chat/v1/events discode new
 ```
 
 ### 텔레메트리 프록시 (GA4)
@@ -367,7 +367,8 @@ npm run telemetry:deploy
 npm run telemetry:secret
 ```
 
-배포된 Worker URL을 CLI에 설정:
+CLI 텔레메트리 기본 엔드포인트는 `https://telemetry.discode.chat/v1/events`입니다.
+자체 배포한 Worker URL로 오버라이드하려면:
 
 ```bash
 discode config --telemetry-endpoint https://discode-telemetry-proxy.<your-subdomain>.workers.dev

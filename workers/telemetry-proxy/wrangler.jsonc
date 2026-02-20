@@ -3,6 +3,12 @@
   "name": "discode-telemetry-proxy",
   "main": "src/index.ts",
   "compatibility_date": "2026-02-19",
+  "routes": [
+    {
+      "pattern": "telemetry.discode.chat",
+      "custom_domain": true
+    }
+  ],
   "vars": {
     "GA4_MEASUREMENT_ID": "G-3343SLQ4YR",
     "ALLOWED_SOURCE": "discode-cli"
