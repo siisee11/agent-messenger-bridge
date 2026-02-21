@@ -49,6 +49,43 @@ function pipeToClipboard(command: string, args: string[], text: string): Promise
   });
 }
 
+function readFromClipboard(command: string, args: string[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (value: string | undefined) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child;
+    try {
+      child = spawn(command, args, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      finish(undefined);
+      return;
+    }
+
+    let output = '';
+    child.once('error', () => finish(undefined));
+    child.once('close', (code) => finish(code === 0 ? output : undefined));
+
+    if (!child.stdout) {
+      finish(undefined);
+      return;
+    }
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      output += chunk;
+    });
+    child.stdout.on('error', () => finish(undefined));
+  });
+}
+
 async function copyWithNativeTools(text: string): Promise<void> {
   const os = platform();
   const isWsl = release().toLowerCase().includes('microsoft');
@@ -78,8 +115,53 @@ async function copyWithNativeTools(text: string): Promise<void> {
   }
 }
 
+async function readWithNativeTools(): Promise<string | undefined> {
+  const os = platform();
+  const isWsl = release().toLowerCase().includes('microsoft');
+
+  if (os === 'darwin') {
+    const value = await readFromClipboard('pbpaste', []);
+    if (value !== undefined) return value;
+  }
+
+  if (os === 'linux') {
+    if (process.env.WAYLAND_DISPLAY) {
+      const value = await readFromClipboard('wl-paste', []);
+      if (value !== undefined) return value;
+    }
+
+    {
+      const value = await readFromClipboard('xclip', ['-selection', 'clipboard', '-o']);
+      if (value !== undefined) return value;
+    }
+
+    {
+      const value = await readFromClipboard('xsel', ['--clipboard', '--output']);
+      if (value !== undefined) return value;
+    }
+  }
+
+  if (os === 'win32' || isWsl) {
+    return readFromClipboard(
+      'powershell.exe',
+      [
+        '-NonInteractive',
+        '-NoProfile',
+        '-Command',
+        '[Console]::OutputEncoding=[Text.UTF8Encoding]::UTF8; $value = Get-Clipboard -Raw; if ($null -ne $value) { [Console]::Out.Write($value) }',
+      ],
+    );
+  }
+
+  return undefined;
+}
+
 export async function copyTextToClipboard(text: string, renderer?: ClipboardRenderer): Promise<void> {
   if (!text || text.length === 0) return;
   writeOsc52(text, renderer);
   await copyWithNativeTools(text);
+}
+
+export async function readTextFromClipboard(): Promise<string | undefined> {
+  return readWithNativeTools();
 }

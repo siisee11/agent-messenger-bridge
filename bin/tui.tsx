@@ -2,11 +2,11 @@
 /** @jsxRuntime automatic */
 
 import { InputRenderable, RGBA, TextAttributes } from '@opentui/core';
-import { render, useKeyboard, useRenderer, useSelectionHandler, useTerminalDimensions } from '@opentui/solid';
+import { render, useKeyboard, usePaste, useRenderer, useSelectionHandler, useTerminalDimensions } from '@opentui/solid';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import { copyTextToClipboard } from '../src/cli/common/clipboard.js';
+import { copyTextToClipboard, readTextFromClipboard } from '../src/cli/common/clipboard.js';
 import type { TerminalSegment, TerminalStyledLine } from '../src/runtime/vt-screen.js';
 
 declare const DISCODE_VERSION: string | undefined;
@@ -720,6 +720,28 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     return null;
   };
 
+  const sendRawToRuntime = (raw: string) => {
+    if (!raw || !props.input.onRuntimeKey) return;
+    const session = currentSession();
+    const window = currentWindow();
+    if (!session || !window) return;
+    void props.input.onRuntimeKey(session, window, raw);
+  };
+
+  const pasteClipboardToRuntime = async () => {
+    try {
+      const text = await readTextFromClipboard();
+      if (!text || text.length === 0) {
+        showClipboardToast('Clipboard is empty');
+        return;
+      }
+      sendRawToRuntime(text);
+      showClipboardToast('Pasted from clipboard');
+    } catch (error) {
+      showClipboardToast(`Paste failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const toTextAttributes = (segment: { bold?: boolean; italic?: boolean; underline?: boolean }): number => {
     let attr = 0;
     if (segment.bold) attr |= TextAttributes.BOLD;
@@ -796,11 +818,7 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       }
 
       if (evt.name === PREFIX_KEY_NAME && canHandleRuntimeInput()) {
-        const session = currentSession();
-        const window = currentWindow();
-        if (session && window && props.input.onRuntimeKey) {
-          void props.input.onRuntimeKey(session, window, String.fromCharCode(2));
-        }
+        sendRawToRuntime(String.fromCharCode(2));
       }
       return;
     }
@@ -820,6 +838,12 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       if (!paletteOpen()) {
         openCommandPalette();
       }
+      return;
+    }
+
+    if (evt.ctrl && evt.name === 'v' && canHandleRuntimeInput()) {
+      evt.preventDefault();
+      void pasteClipboardToRuntime();
       return;
     }
 
@@ -966,13 +990,17 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
       const raw = toRuntimeRawKey(evt);
       if (raw) {
         evt.preventDefault();
-        const session = currentSession();
-        const window = currentWindow();
-        if (session && window && props.input.onRuntimeKey) {
-          void props.input.onRuntimeKey(session, window, raw);
-        }
+        sendRawToRuntime(raw);
       }
     }
+  });
+
+  usePaste((evt) => {
+    if (!canHandleRuntimeInput()) return;
+    const text = evt.text || '';
+    if (!text) return;
+    evt.preventDefault();
+    sendRawToRuntime(text);
   });
 
   onMount(() => {
