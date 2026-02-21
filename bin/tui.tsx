@@ -266,9 +266,9 @@ function TuiApp(props: { input: TuiInput; close: () => void }) {
     openProjects()
       .slice()
       .sort((a, b) => {
-        const bySession = a.session.localeCompare(b.session);
+        const bySession = b.session.localeCompare(a.session);
         if (bySession !== 0) return bySession;
-        return a.window.localeCompare(b.window);
+        return b.window.localeCompare(a.window);
       })
       .slice(0, 9)
   );
